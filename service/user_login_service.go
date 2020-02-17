@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"jxc/models"
 	"jxc/serializer"
 
@@ -19,7 +18,6 @@ type UserLoginService struct {
 
 // Login handle the user login
 func (u *UserLoginService) Login(c *gin.Context) serializer.Response {
-	fmt.Println(c.GetRawData())
 	var user models.User
 
 	err := models.Client.Collection("users").FindOne(context.TODO(), bson.D{{"username", u.UserName}}).Decode(&user)

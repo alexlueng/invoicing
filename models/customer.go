@@ -5,7 +5,7 @@ package models
 // 需要加上com_id, 每个公司都有自己的ID
 type Customer struct {
 	ID        int64  `json:"customer_id" bson:"customer_id"`
-	ComID     int32 `json:"com_id" bson:"com_id"`
+	ComID     int64 `json:"com_id" bson:"com_id"`
 	Name      string `json:"customer_name" form:"customer_name"`
 	Level     int64  `json:"level" form:"level"`
 	Payment   string `json:"payment" form:"payment"`

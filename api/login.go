@@ -1,41 +1,65 @@
 package api
 
 import (
+	"context"
 	"fmt"
+	"go.mongodb.org/mongo-driver/bson"
+	"jxc/auth"
+	"jxc/models"
 	"jxc/serializer"
-	"jxc/service"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
 
+type LoginService struct {
+	Username string `json:"username" form:"username"`
+	Password string `json:"password" form:"password"`
+}
+
 // 登录
 func Login(c *gin.Context) {
-	// 获取 当前域名绑定了哪个公司
-	/*	host := strings.Split(c.Request.Host, ":")[0]
-		company, err := GetCompany(host)
+
+
+	var service LoginService
+	var user models.User
+
+	if err := c.ShouldBind(&service); err == nil {
+		fmt.Println("username: ", service.Username)
+		fmt.Println("password: ", service.Password)
+
+		err = models.Client.Collection("users").FindOne(context.TODO(), bson.D{{"username", service.Username}}).Decode(&user)
 		if err != nil {
-			// 域名未注册或找不到这家公司
-			c.JSON(200, serializer.Response{
+			fmt.Println("Can't find user.")
+			c.JSON(http.StatusOK, serializer.Response{
 				Code: -1,
-				Msg:  err.Error(),
+				Msg: "Can't find user.",
 			})
 			return
-		}*/
+		}
 
-	var service service.UserLoginService
-	fmt.Println(service.UserName)
-	fmt.Println(service.Password)
-	if err := c.ShouldBind(&service); err == nil {
-		res := service.Login(c)
-		c.JSON(200, res)
+		if !user.CheckPassword(user.Password) {
+			fmt.Println("Password error")
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: -1,
+				Msg: "Password error",
+			})
+			return
+		}
+
+		token, err := auth.GenerateToken(user.Username, user.Password)
+		if err != nil {
+			fmt.Println("can't generate token.")
+			return
+		}
+		fmt.Println("Generate token: ", token)
+		//res := service.Login(c)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: 200,
+			Msg: "Login success",
+			Data: token,
+		})
 	} else {
-		// userInfo, err := service.Login("", form.Username, form.Password)
-		// if err != nil {
-		// 	c.JSON(200, serializer.Response{
-		// 		Code: -1,
-		// 		Msg:  err.Error(),
-		// 	})
-		// 	return
 		c.JSON(200, serializer.Response{
 			Code: -1,
 			Msg:  err.Error(),

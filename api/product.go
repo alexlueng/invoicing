@@ -2,28 +2,19 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"jxc/models"
-	"jxc/serializer"
-	"strings"
-	"io/ioutil"
-	"net/http"
-	"strconv"
-	"time"
-
 	"github.com/gin-gonic/gin"
+	"encoding/json"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"io/ioutil"
+	"jxc/models"
+	"jxc/serializer"
+	"net/http"
+	"strings"
 )
 
-//允许同名的客户
-const ENABLESAMECUSTOMER = false
-
-// http://localhost:3000/api/v1/customer/list?page=1&size=10&name=0&level=0 返回json 结果
-// 默认展示前20条数据，第1页，以升序的方式
-func ListCustomers(c *gin.Context) {
-
+func AllProducts(c *gin.Context) {
 	// 根据域名得到com_id
 	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
 	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
@@ -34,11 +25,8 @@ func ListCustomers(c *gin.Context) {
 		return
 	}
 
-	var req models.CustReq
-	var customers []models.Customer
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
+	var products []models.Product
+	var req models.ProductReq
 
 	err = c.ShouldBind(&req)
 	if err != nil {
@@ -48,11 +36,11 @@ func ListCustomers(c *gin.Context) {
 		})
 		return
 	}
-	// 设置分页的默认值
+
 	req.Page, req.Size = SetDefaultPageAndSize(req.Page, req.Size)
 
 	// 设置排序主键
-	orderField := []string{"customer_id", "com_id", "customer_name", "level", "payment", "payamount", "receiver", "address", "phone"}
+	orderField := []string{"product_id", "com_id", "product"}
 	exist := false
 	fmt.Println("order field: ", req.OrdF)
 	for _, v := range orderField {
@@ -62,7 +50,7 @@ func ListCustomers(c *gin.Context) {
 		}
 	}
 	if !exist {
-		req.OrdF = "customer_id"
+		req.OrdF = "product_id"
 	}
 	// 设置排序顺序 desc asc
 	order := 1
@@ -78,6 +66,9 @@ func ListCustomers(c *gin.Context) {
 	option := options.Find()
 	option.SetLimit(int64(req.Size))
 	option.SetSkip((int64(req.Page) - 1) * int64(req.Size))
+
+	//1从小到大,-1从大到小
+	option.SetSort(bson.D{{req.OrdF, order}})
 
 	//1从小到大,-1从大到小
 	option.SetSort(bson.D{{req.OrdF, order}})
@@ -100,67 +91,40 @@ func ListCustomers(c *gin.Context) {
 			filter["id"] = bson.M{"$lt": req.IdMax}
 		}
 	}
-	// Reciever string `form:"reciever"` //模糊搜索
-	if req.Name != "" {
-		filter["name"] = bson.M{"$regex": req.Name}
-	}
-	// Reciever string `form:"reciever"` //模糊搜索
-	if req.Receiver != "" {
-		fmt.Println("receiver: ", req.Receiver)
-		filter["receiver"] = bson.M{"$regex": req.Receiver}
-	}
-	// Level    int    `form:"level"`
-	level, _ := strconv.Atoi(req.Level)
-	if level > 0 {
-		filter["level"] = bson.M{"$eq": level}
-	}
-	//Payment  int    `form:"payment"`
-	payment, _ := strconv.Atoi(req.Payment)
-	if payment != 0 {
-		filter["payment"] = bson.M{"$eq": req.Payment}
-	}
-	// Address  string `form:"address"`  //模糊搜索
-	if req.Address != "" {
-		filter["address"] = bson.M{"$regex": req.Address}
-	}
-	// Phone    string `form:"phone"`    //模糊搜索
-	if req.Phone != "" {
-		filter["phone"] = bson.M{"$regex": req.Phone}
+	// Product string `form:"Product"` //模糊搜索
+	if req.Product != "" {
+		filter["product"] = bson.M{"$regex": req.Product}
 	}
 
 	// 每个查询都要带着com_id去查
-	//com_id, _ := strconv.Atoi(com.ComId)
 	filter["com_id"] = com.ComId
-
 	fmt.Println("filter: ", filter)
 
-	// 当前请求页面的数据
-	cur, err := models.Client.Collection("customer").Find(ctx, filter, option)
+	collection := models.Client.Collection("product")
+	cur, err := collection.Find(context.TODO(), filter, option)
 	if err != nil {
 		fmt.Println("error while setting findoptions: ", err)
 		return
 	}
-
 	for cur.Next(context.TODO()) {
-		var result models.Customer
+		var result models.Product
 		err := cur.Decode(&result)
 		if err != nil {
-			fmt.Println("error found decoding customer: ", err)
+			fmt.Println("error while decoding product")
 			return
 		}
-		customers = append(customers, result)
+		products = append(products, result)
 	}
 
-	//查询的总数
 	var total int64
-	cur, _ = models.Client.Collection("customer").Find(ctx, filter)
+	cur, _ = models.Client.Collection("product").Find(context.TODO(), filter)
 	for cur.Next(context.TODO()) {
 		total++
 	}
 
 	// 返回查询到的总数，总页数
-	resData := models.ResponseCustomerData{}
-	resData.Customers = customers
+	resData := models.ResponseProductData{}
+	resData.Products = products
 	resData.Total = int(total)
 	resData.Pages = int(total)/int(req.Size) + 1
 	resData.Size = int(req.Size)
@@ -168,14 +132,13 @@ func ListCustomers(c *gin.Context) {
 
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
-		Msg:  "Get customers",
+		Msg:  "Get products",
 		Data: resData,
 	})
 
 }
 
-// AddCustomer a customer and save into mongodb
-func AddCustomer(c *gin.Context) {
+func AddProduct(c *gin.Context) {
 	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
 	//moduleID, _ := strconv.Atoi(com.ModuleId)
 	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
@@ -185,42 +148,46 @@ func AddCustomer(c *gin.Context) {
 		})
 		return
 	}
+
 	data, _ := ioutil.ReadAll(c.Request.Body)
-	customer := models.Customer{}
+	var product models.Product
 
-	_ = json.Unmarshal(data, &customer)
-	collection := models.Client.Collection("customer")
-	result := models.Customer{}
+	err = json.Unmarshal(data, &product)
+	if err != nil {
+		fmt.Println("err found while decoding into product: ", err)
+	}
 
+	var result models.Product
+	collection := models.Client.Collection("product")
 	if !ENABLESAMECUSTOMER { // 不允许重名的情况，先查找数据库是否已经存在记录，如果有，则返回错误码－1
 		filter := bson.M{}
 		filter["com_id"] = com.ComId
-		filter["name"] = customer.Name
+		filter["product"] = result.Product
 		_ = collection.FindOne(context.TODO(), filter).Decode(&result)
-		if result.Name != "" {
+		if result.Product != "" {
 			c.JSON(http.StatusOK, serializer.Response{
 				Code: -1,
-				Msg:  "该客户已经存在",
+				Msg:  "该商品已经存在",
 			})
 			return
 		}
 	}
-	customer.ID = int64(getLastCustomerID())
-	customer.ComID = com.ComId
-	insertResult, err := collection.InsertOne(context.TODO(), customer)
+
+	product.ProductID = int64(getLastID("product"))
+	product.ComID = com.ComId
+
+	insertResult, err := collection.InsertOne(context.TODO(), product)
 	if err != nil {
 		fmt.Println("Error while inserting mongo: ", err)
 	}
 	fmt.Println("Inserted a single document: ", insertResult.InsertedID)
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
-		Msg:  "Customer create succeeded",
+		Msg:  "Product create succeeded",
 	})
 }
 
-// UpdateCustomer update an exist record
-func UpdateCustomer(c *gin.Context) {
-
+func UpdateProduct(c *gin.Context) {
 	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
 	//moduleID, _ := strconv.Atoi(com.ModuleId)
 	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
@@ -231,30 +198,30 @@ func UpdateCustomer(c *gin.Context) {
 		return
 	}
 
-	updateCus := models.Customer{}
+	updateProduct := models.Product{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
-	_ = json.Unmarshal(data, &updateCus)
+	_ = json.Unmarshal(data, &updateProduct)
 
 	// 更新的条件：更改的时候如果有同名的记录，则要判断是否有与要修改的记录的customer_id相等,如果有不相等的，则返回
 	// 如果只有相等的customer_id, 则允许修改
 	filter := bson.M{}
 
 	filter["com_id"] = com.ComId
-	filter["name"] = updateCus.Name
-	collection := models.Client.Collection("customer")
+	filter["product"] = updateProduct.Product
+	collection := models.Client.Collection("product")
 
 	cur, err := collection.Find(context.TODO(), filter)
 	for cur.Next(context.TODO()) {
-		var tempRes models.Customer
+		var tempRes models.Product
 		err := cur.Decode(&tempRes)
 		if err != nil {
 			fmt.Println("error found decoding customer: ", err)
 			return
 		}
-		if tempRes.ID != updateCus.ID {
+		if tempRes.ProductID != updateProduct.ProductID {
 			c.JSON(http.StatusOK, serializer.Response{
 				Code: -1,
-				Msg:  "要修改的客户名已经存在",
+				Msg:  "要修改的商品已经存在",
 			})
 			return
 		}
@@ -262,15 +229,14 @@ func UpdateCustomer(c *gin.Context) {
 
 	filter = bson.M{}
 	filter["com_id"] = com.ComId
-	filter["customer_id"] = updateCus.ID
+	filter["product_id"] = updateProduct.ProductID
 	// 更新记录
 	result, err := collection.UpdateOne(context.TODO(), filter, bson.M{
-		"$set": bson.M{"name": updateCus.Name,
-			"receiver": updateCus.Receiver,
-			"receiver_phone": updateCus.Phone,
-			"receiver_address": updateCus.Address,
-			"payment": updateCus.Payment,
-			"level": updateCus.Level}})
+		"$set": bson.M{"product": updateProduct.Product,
+			"num": updateProduct.Num,
+			"price_of_suppliers": updateProduct.PriceOfSuppliers,
+			"units": updateProduct.Units,
+			"url": updateProduct.URL}})
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -278,20 +244,19 @@ func UpdateCustomer(c *gin.Context) {
 		})
 		return
 	}
-	fmt.Println("Update result: ", result	)
+	fmt.Println("Update result: ", result)
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
-		Msg:  "Customer update succeeded",
+		Msg:  "Product update succeeded",
 	})
 }
 
-type DeleteCustomerService struct {
-	ID int64 `json:"customer_id"`
+type DeleteProductService struct {
+	ID int64 `json:"product_id"`
 }
 
-// DeleteCustomer delete an exist record
-func DeleteCustomer(c *gin.Context) {
 
+func DeleteProduct(c *gin.Context) {
 	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
 	if ( (err != nil) || (models.THIS_MODULE != com.ModuleId) ){
 		c.JSON(http.StatusOK, serializer.Response{
@@ -301,7 +266,7 @@ func DeleteCustomer(c *gin.Context) {
 		return
 	}
 
-	var d DeleteCustomerService
+	var d DeleteProductService
 
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	_ = json.Unmarshal(data, &d)
@@ -309,41 +274,19 @@ func DeleteCustomer(c *gin.Context) {
 	filter := bson.M{}
 
 	filter["com_id"] = com.ComId
-	filter["customer_id"] = d.ID
-	collection := models.Client.Collection("customer")
+	filter["product_id"] = d.ID
+	collection := models.Client.Collection("product")
 	deleteResult, err := collection.DeleteOne(context.TODO(), filter)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
-			Msg:  "删除用户失败",
+			Msg:  "删除商品失败",
 		})
 		return
 	}
 	fmt.Println("Delete a single document: ", deleteResult.DeletedCount)
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
-		Msg:  "Customer delete succeeded",
+		Msg:  "Product delete succeeded",
 	})
 }
-
-type CustomerCount struct {
-	NameField string
-	Count     int
-}
-
-// 因mongodb不允许自增方法，所以要生成新增客户的id
-// 这是极度不安全的代码，因为本程序是分布式的，本程序可能放在多台服务器上同时运行的。
-// 需要在交付之前修改正确
-func getLastCustomerID() int {
-	var cc CustomerCount
-	collection := models.Client.Collection("counters")
-	err := collection.FindOne(context.TODO(), bson.D{{"name", "customer"}}).Decode(&cc)
-	if err != nil {
-		fmt.Println("can't get customerID")
-		return 0
-	}
-	collection.UpdateOne(context.TODO(), bson.M{"name": "customer"}, bson.M{"$set": bson.M{"count": cc.Count + 1}})
-	fmt.Println("customer count: ", cc.Count)
-	return cc.Count + 1
-}
-

@@ -18,4 +18,6 @@ func main() {
 	r := router.InitRouter()
 	r.Run(":3000")
 
+	// 支持热更新
+
 }

@@ -18,42 +18,8 @@ import (
 	"strings"
 )
 
+// 仓库名和仓库地址是否可以重复
 const ENABLESAMEWAREHOUSE = false
-
-type Warehouse struct {
-	ID int64 `json:"warehouse_id" bson:"warehouse_id"`
-	ComID int64 `json:"com_id" bson:"com_id"`
-	Name string `json:"warehouse_name" bson:"warehouse_name"`
-	Address string `json:"warehouse_address" bson:"warehouse_address"`
-	Manager string `json:"wh_manager" bson:"wh_manager"`
-}
-
-//用户提交过来的数据
-type WarehouseReq struct {
-	IdMin int `form:"idmin"` //okid界于[idmin 和 idmax] 之间的数据
-	IdMax int `form:"idmax"` //ok
-	//本页面的搜索字段 sf固定等于customer_name， key的值为用户提交过来的客户名关键字
-	Key  string `form:"key"`              //用户提交过来的模糊搜索关键字
-	Sf   string `form:"sf"`               //用户模糊搜索的字段  search field
-	Page int64  `json:"page" form:"page"` //ok用户查询的是哪一页的数据
-	Size int64  `json:"size" form:"size"` //ok用户希望每页展现多少条数据
-	OrdF string `json:"ordf" form:"ordf"` //ok用户排序字段 order field
-	Ord  string `json:"ord" form:"ord"`   //ok顺序还是倒序排列  ord=desc 倒序，ord = asc 升序
-	TMin int    `form:"tmin"`             //时间最小值[tmin,tmax)
-	TMax int    `form:"tmax"`             //时间最大值
-	//本页面定制的搜索字段
-	Name      string `json:"warehouse_name" form:"warehouse_name"`       //模糊搜索
-	Address  string `json:"warehouse_address" form:"warehouse_address"`   //模糊搜索
-}
-
-type ResponseWarehouseData struct {
-	Warehouses   []Warehouse `json:"warehouses"`
-	Total       int        `json:"total"`
-	Pages       int        `json:"pages"`
-	Size        int        `json:"size"`
-	CurrentPage int        `json:"current_page"`
-}
-
 
 func AllWarehouses(c *gin.Context) {
 	// 根据域名得到com_id
@@ -68,8 +34,8 @@ func AllWarehouses(c *gin.Context) {
 		return
 	}
 
-	var req WarehouseReq
-	var warehouses []Warehouse
+	var req models.WarehouseReq
+	var warehouses []models.Warehouse
 
 	err = c.ShouldBind(&req)
 	if err != nil {
@@ -80,13 +46,7 @@ func AllWarehouses(c *gin.Context) {
 		return
 	}
 
-	// 设置分页的默认值
-	if req.Size < 11 {
-		req.Size = 10
-	}
-	if req.Page < 2 {
-		req.Page = 1
-	}
+	req.Page, req.Size = SetDefaultPageAndSize(req.Page, req.Size)
 
 	// 设置排序主键
 	orderField := []string{"warehouse_id", "com_id", "warehouse_address", "wh_manager", "warehouse_name"}
@@ -138,6 +98,10 @@ func AllWarehouses(c *gin.Context) {
 		}
 	}
 
+	if req.ID > 0 {
+		filter["warehouse_id"] = bson.M{"$eq": req.ID}
+	}
+
 	// Reciever string `form:"warehouse_name"` //模糊搜索
 	if req.Name != "" {
 		filter["warehouse_name"] = bson.M{"$regex": req.Name}
@@ -150,8 +114,8 @@ func AllWarehouses(c *gin.Context) {
 
 	// 每个查询都要带着com_id
 	//com_id, _ := strconv.Atoi(com.ComId)
-	//filter["com_id"] = com_id
-	filter["com_id"] = 1
+	filter["com_id"] = com.ComId
+	//filter["com_id"] = 1
 	// all conditions are set then start searching
 	collection := models.Client.Collection(("warehouse"))
 	cur, err := collection.Find(context.TODO(), filter, option)
@@ -160,7 +124,7 @@ func AllWarehouses(c *gin.Context) {
 		return
 	}
 	for cur.Next(context.TODO()) {
-		var result Warehouse
+		var result models.Warehouse
 		if err := cur.Decode(&result); err != nil {
 			fmt.Println("error while decoding recording: ", err)
 			return
@@ -175,7 +139,7 @@ func AllWarehouses(c *gin.Context) {
 		total++
 	}
 
-	resData := ResponseWarehouseData{}
+	resData := models.ResponseWarehouseData{}
 	resData.Warehouses = warehouses
 	resData.Total = int(total)
 	resData.Pages = int(total)/int(req.Size) + 1
@@ -203,7 +167,7 @@ func AddWarehouse(c *gin.Context) {
 	}
 	data, _ := ioutil.ReadAll(c.Request.Body)
 
-	var warehouse Warehouse
+	var warehouse models.Warehouse
 	err = json.Unmarshal(data, &warehouse)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
@@ -214,7 +178,7 @@ func AddWarehouse(c *gin.Context) {
 	}
 	collection := models.Client.Collection("warehouse")
 	if !ENABLESAMEWAREHOUSE { //仓库重名检测，
-		var result Warehouse
+		var result models.Warehouse
 		filter := bson.M{}
 //		com_id, _ := strconv.Atoi(com.ComId)
 		filter["com_id"] = com.ComId
@@ -258,7 +222,7 @@ func UpdateWarehouse(c *gin.Context) {
 		return
 	}
 
-	updateWarehouse := Warehouse{}
+	updateWarehouse := models.Warehouse{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	err = json.Unmarshal(data, &updateWarehouse)
 	if err != nil {
@@ -274,7 +238,7 @@ func UpdateWarehouse(c *gin.Context) {
 	collection := models.Client.Collection("warehouse")
 	cur, err := collection.Find(context.TODO(), filter)
 	for cur.Next(context.TODO()) {
-		var tempWarehouse Warehouse
+		var tempWarehouse models.Warehouse
 		err := cur.Decode(&tempWarehouse)
 		if err != nil {
 			fmt.Println("error found decoding warehouse: ", err)
@@ -295,7 +259,7 @@ func UpdateWarehouse(c *gin.Context) {
 
 	cur, err = collection.Find(context.TODO(), filter)
 	for cur.Next(context.TODO()) {
-		var tempWarehouse Warehouse
+		var tempWarehouse models.Warehouse
 		err := cur.Decode(&tempWarehouse)
 		if err != nil {
 			fmt.Println("error found decoding warehouse: ", err)
@@ -336,7 +300,7 @@ func UpdateWarehouse(c *gin.Context) {
 }
 
 type DeleteWarehouseService struct {
-	ID int64 `json:"warehouse_id"`
+	ID int64 `json:"warehouse_id" form:"warehouse_id"`
 }
 
 func DeleteWarehouse(c *gin.Context) {
@@ -350,7 +314,7 @@ func DeleteWarehouse(c *gin.Context) {
 		return
 	}
 
-	var d DeleteCustomerService
+	var d DeleteWarehouseService
 
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	_ = json.Unmarshal(data, &d)

@@ -8,6 +8,7 @@ import (
 	"jxc/serializer"
 	"jxc/service"
 	"net/http"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -90,4 +91,40 @@ func SetDefaultPageAndSize(page, size int64) (int64, int64) {
 		p = 1
 	}
 	return p, s
+}
+
+func SmartPrint(i interface{}){
+	var kv = make(map[string]interface{})
+	vValue := reflect.ValueOf(i)
+	vType :=reflect.TypeOf(i)
+	for i:=0; i < vValue.NumField(); i++{
+		kv[vType.Field(i).Name] = vValue.Field(i)
+	}
+	fmt.Println("获取到数据:")
+	for k,v := range kv {
+		fmt.Print(k)
+		fmt.Print(":")
+		fmt.Print(v)
+		fmt.Println()
+	}
+}
+
+type Counts struct {
+	NameField string
+	Count     int
+}
+// 因mongodb不允许自增方法，所以要生成新增客户的id
+// 这是极度不安全的代码，因为本程序是分布式的，本程序可能放在多台服务器上同时运行的。
+// 需要在交付之前修改正确
+func getLastID(field_name string) int {
+	var c Counts
+	collection := models.Client.Collection("counters")
+	err := collection.FindOne(context.TODO(), bson.D{{"name", field_name}}).Decode(&c)
+	if err != nil {
+		fmt.Println("can't get ID")
+		return 0
+	}
+	collection.UpdateOne(context.TODO(), bson.M{"name": field_name}, bson.M{"$set": bson.M{"count": c.Count + 1}})
+	fmt.Printf("%s count: %d", field_name, c.Count)
+	return c.Count + 1
 }
