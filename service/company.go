@@ -49,7 +49,7 @@ func UidFindCompany(user_id string) (models.CompanyData, error) {
 }
 
 // 更新公司
-func UpdateCompany(com_id string,com models.CompanyData) {
+func UpdateCompany(com_id string, com models.CompanyData) {
 	collection := models.Client.Collection("company")
 
 	if _, err := collection.UpdateOne(context.TODO(), bson.M{"com_id": com_id}, bson.M{"$set": com}); err != nil {
@@ -57,4 +57,18 @@ func UpdateCompany(com_id string,com models.CompanyData) {
 	}
 	//fmt.Printf("UpdateOne的数据:%d\n", updateRes)
 
+}
+
+// 查找费送方式
+func FindOneDelivery(deliveryId int64, comId int64) (*models.Delivery, error) {
+	collection := models.Client.Collection("company")
+	var delivery models.Delivery
+	filter := bson.M{}
+	filter["comid"] = comId
+	filter["delivery_id"] = deliveryId
+	err := collection.FindOne(context.TODO(), filter).Decode(&delivery)
+	if err != nil {
+		return nil, err
+	}
+	return &delivery, nil
 }

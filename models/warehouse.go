@@ -1,12 +1,6 @@
 package models
 
-type Warehouse struct {
-	ID int64 `json:"warehouse_id" bson:"warehouse_id"`
-	ComID int64 `json:"com_id" bson:"com_id"`
-	Name string `json:"warehouse_name" bson:"warehouse_name"`
-	Address string `json:"warehouse_address" bson:"warehouse_address"`
-	Manager string `json:"wh_manager" bson:"wh_manager"`
-}
+import "fmt"
 
 //用户提交过来的数据
 type WarehouseReq struct {
@@ -22,16 +16,22 @@ type WarehouseReq struct {
 	TMin int    `form:"tmin"`             //时间最小值[tmin,tmax)
 	TMax int    `form:"tmax"`             //时间最大值
 	//本页面定制的搜索字段
-	ID int64 `json:"warehouse_id" form:"warehouse_id"`
-	Name      string `json:"warehouse_name" form:"warehouse_name"`       //模糊搜索
-	Address  string `json:"warehouse_address" form:"warehouse_address"`   //模糊搜索
+	ID      int64  `json:"warehouse_id" form:"warehouse_id"`
+	Name    string `json:"warehouse_name" form:"warehouse_name"`       //模糊搜索
+	Address string `json:"warehouse_address" form:"warehouse_address"` //模糊搜索
+	Manager int64  `json:"manager" form:"manager"`                     // 仓库管理员id
+	Stuff   int64  `json:"stuff" form:"stuff"`                         //仓库职员id
 }
 
 type ResponseWarehouseData struct {
-	Warehouses   []Warehouse `json:"warehouses"`
-	Total       int        `json:"total"`
-	Pages       int        `json:"pages"`
-	Size        int        `json:"size"`
-	CurrentPage int        `json:"current_page"`
+	Warehouses []Warehouse `json:"warehouses"`
+	//Stuffs []Stuff `json:"wh_stuff"`
+	Total       int `json:"total"`
+	Pages       int `json:"pages"`
+	Size        int `json:"size"`
+	CurrentPage int `json:"current_page"`
 }
 
+func (w *Warehouse) UpdateStock() {
+	fmt.Println("hello this is my warehouse: ", w.Name)
+}

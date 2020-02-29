@@ -18,8 +18,7 @@ type UserRules struct {
 
 	UserName string `form:"username" json:"username" binding:"required,min=5,max=20"`
 	Password string `form:"password" json:"password" binding:"required,min=8,max=20"`
-	Phone string `form:"phone" json:"phone" binding:"required,min=6,max=20"`
-
+	Phone    string `form:"phone" json:"phone" binding:"required,min=6,max=20"`
 }
 
 // 用户登录
@@ -56,15 +55,26 @@ func CreateLoginLog(user_id, ip, msg string) {
 }
 
 // 查找用户
-func FindUser(userId string) (models.User, error) {
-	user := models.User{} //bson.D{{"user_id",userId}}
-	err := models.Collection.FindOne(context.TODO(), bson.D{{"user_id", userId}}).Decode(&user)
+func FindUser(user_id []int64, com_id int64) (map[int64]models.User, error) {
+	var user models.User
+	users := make(map[int64]models.User) // map[user_id]user
+	filter := bson.M{}
+	filter["user_id"] = bson.M{"$in": user_id}
+	filter["com_id"] = com_id
+	collection := models.Client.Collection("users")
+	cur, err := collection.Find(context.TODO(), filter)
 	if err != nil {
-		// 没有找到这名用户
-		return user, errors.New("")
-	} else {
-		return user, nil
+		return nil, err
 	}
+	for cur.Next(context.TODO()) {
+		err = cur.Decode(&user)
+		if err != nil {
+			return nil, err
+		}
+		users[user.UserID] = user
+	}
+	return users, nil
+
 }
 
 // 更新用户信息

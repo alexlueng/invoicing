@@ -1,60 +1,91 @@
 package models
 
+const (
+	TOBECONFIRMED = iota + 1
+	TOBEDELIVERED
+	TOBEPAID
+	CONFIRM
+	FAILED
+	INVALID
+)
+
 type CustomerOrder struct {
-	ComID int64 `json:"com_id" bson:"com_id"`
-	OrderSN string `json:"order_sn" bson:"order_sn"`
-	WarehouseID int64 `json:"warehouse_id" bson:"warehouse_id"`
-	SupplierOrderID int64 `json:"supplier_order_id" bson:"supplier_order_id"`
-	CustomerID int64 `json:"customer_id" bson:"customer_id"`
-	CustomerName string `json:"customer_name" bson:"customer_name"`
-	Contacts string `json:"contacts" bson:"contacts"`
-	Receiver string  `json:"receiver" bson:"receiver"`
-	Phone string `json:"receiver_phone" bson:"receiver_phone"`
-	Price float64 `json:"price" bson:"price"`
-	Amount int64 `json:"amount" bson:"amount"`
-	ExtraAmount float64 `json:"extra_amount" bson:"extra_amount"`
-	Delivery string `json:"delivery" bson:"delivery"`
-	DeliveryCode string `json:"delivery_code" bson:"delivery_code"`
-	OrderTime int64 `json:"order_time" bson:"order_time"` // 所有的时间都是以int64的类型插入到mongodb中
-	ShipTime int64 `json:"ship_time" bson:"ship_time"`
-	ConfirmTime int64 `json:"confirm_time" bson:"confirm_time"`
-	PayTime int64 `json:"pay_time" bson:"pay_time"`
-	FinishTime int64 `json:"finish_time" bson:"finish_time"`
-	Status string `json:"status" bson:"status"`
+	ComID           int64   `json:"com_id" bson:"com_id"`
+	OrderId         int64   `json:"order_id" bson:"order_id"`
+	OrderSN         string  `json:"order_sn" bson:"order_sn"`
+	WarehouseID     int64   `json:"warehouse_id" bson:"warehouse_id"`
+	SupplierOrderID int64   `json:"supplier_order_id" bson:"supplier_order_id"`
+	CustomerID      int64   `json:"customer_id" bson:"customer_id"`
+	CustomerName    string  `json:"customer_name" bson:"customer_name"`
+	Contacts        string  `json:"contacts" bson:"contacts"`
+	Receiver        string  `json:"receiver" bson:"receiver"`
+	Phone           string  `json:"receiver_phone" bson:"receiver_phone"`
+	TotalPrice      float64 `json:"total_price" bson:"price"` // 订单总价
+	Amount          int64   `json:"amount" bson:"amount"`     // 订单总数量
+	ExtraAmount     float64 `json:"extra_amount" bson:"extra_amount"`
+	Delivery        string  `json:"delivery" bson:"delivery"`
+	DeliveryCode    string  `json:"delivery_code" bson:"delivery_code"`
+	OrderTime       int64   `json:"order_time" bson:"order_time"` // 所有的时间都是以int64的类型插入到mongodb中
+	ShipTime        int64   `json:"ship_time" bson:"ship_time"`
+	ConfirmTime     int64   `json:"confirm_time" bson:"confirm_time"`
+	PayTime         int64   `json:"pay_time" bson:"pay_time"`
+	FinishTime      int64   `json:"finish_time" bson:"finish_time"`
+	Status          int64   `json:"status" bson:"status"` // 订单状态，1：待发货 2：待确认（已发货） 3：待付款（已确认） 4：审核通过（已打款） 5：审核不通过 6: 失效
+
+	Products   []CustomerOrderProductsInfo `json:"products"`    // 订单中的商品列表
+	OperatorID int64                       `json:"operator_id"` // 本次订单的操作人，对应user_id
+
+	TransportationExpense float64 `json:"transportation_expense"` // 邮费 此项如果为0，则为包邮，此字段不能为负数，应该对它进行检查，或者设为无符号数
 }
 
 type CustomerOrderReq struct {
-	IdMin int `form:"idmin"` //okid界于[idmin 和 idmax] 之间的数据
-	IdMax int `form:"idmax"` //ok
-	//本页面的搜索字段 sf固定等于customer_name， key的值为用户提交过来的客户名关键字
-	Key  string `form:"key"`              //用户提交过来的模糊搜索关键字
-	Sf   string `form:"sf"`               //用户模糊搜索的字段  search field
-	Page int64  `json:"page" form:"page"` //ok用户查询的是哪一页的数据
-	Size int64  `json:"size" form:"size"` //ok用户希望每页展现多少条数据
-	OrdF string `json:"ordf" form:"ordf"` //ok用户排序字段 order field
-	Ord  string `json:"ord" form:"ord"`   //ok顺序还是倒序排列  ord=desc 倒序，ord = asc 升序
-	TMin int    `form:"tmin"`             //时间最小值[tmin,tmax)
-	TMax int    `form:"tmax"`             //时间最大值
+	BaseReq
 	//本页面定制的搜索字段
-	OrderSN string `json:"order_sn" form:"order_sn"`
-	CustomerName      string `json:"customer_name" form:"customer_name"` //模糊搜索
-	Contacts string `json:"contacts" form:"contacts"` //模糊搜索
-	Receiver string `json:"receiver" form:"receiver"` //模糊搜索
-	Delivery string `json:"delivery" form:"delivery"`
-	ExtraAmount float64 `json:"extra_amount" form:"extra_amount"`
-	Status string `json:"status" form:"status"`
-	StartOrderTime string `json:"start_order_time" form:"start_order_time"`
-	EndOrderTime string `json:"end_order_time" form:"end_order_time"`
-	StartPayTime string `json:"start_pay_time" form:"start_pay_time"`
-	EndPayTime string `json:"end_pay_time" form:"end_pay_time"`
-	StartShipTime string `json:"start_ship_time" form:"start_ship_time"`
-	EndShipTime string `json:"end_ship_time" form:"end_ship_time"`
+	OrderSN        string  `json:"order_sn" form:"order_sn"`
+	CustomerName   string  `json:"customer_name" form:"customer_name"` //模糊搜索
+	Contacts       string  `json:"contacts" form:"contacts"`           //模糊搜索
+	Receiver       string  `json:"receiver" form:"receiver"`           //模糊搜索
+	Delivery       string  `json:"delivery" form:"delivery"`
+	ExtraAmount    float64 `json:"extra_amount" form:"extra_amount"`
+	Status         string  `json:"status" form:"status"`
+	StartOrderTime string  `json:"start_order_time" form:"start_order_time"`
+	EndOrderTime   string  `json:"end_order_time" form:"end_order_time"`
+	StartPayTime   string  `json:"start_pay_time" form:"start_pay_time"`
+	EndPayTime     string  `json:"end_pay_time" form:"end_pay_time"`
+	StartShipTime  string  `json:"start_ship_time" form:"start_ship_time"`
+	EndShipTime    string  `json:"end_ship_time" form:"end_ship_time"`
+}
+
+// 订单中包含的商品信息
+type CustomerOrderProductsInfo struct {
+	SubOrderSN string  `json:"sub_order_sn" bson:"sub_order_sn"`
+	SubOrderId int64   `json:"sub_order_id" bson:"sub_order_id"`
+	ProductID  int64   `json:"product_id" bson:"product_id"`
+	Product    string  `json:"product"`
+	Quantity   int64   `json:"quantity" bson:"amount"` //数量
+	Price      float64 `json:"price"`
+}
+
+// 用来查找选中商品后对应客户的价格
+type OrderProducts struct {
+	ProductsID   []int64 `json:"products_id"`
+	CustomerID   int64   `json:"customer_id"`
+	CustomerName string  `json:"customer_name"`
+}
+
+// 接收查找到的对应客户的价格
+type CustomerOrderProductPrice struct {
+	ProductID   int64   `json:"product_id" bson:"product_id"`
+	ProductName string  `json:"product_name" bson:"product_name"`
+	Price       float64 `json:"price" bson:"price"`
 }
 
 type ResponseCustomerOrdersData struct {
-	CustomerOrders   []CustomerOrder `json:"customer_orders"`
-	Total       int        `json:"total"`
-	Pages       int        `json:"pages"`
-	Size        int        `json:"size"`
-	CurrentPage int        `json:"current_page"`
+	CustomerOrders []CustomerOrder `json:"customer_orders"`
+	//Products       []Product       `json:"product"`
+	//Customers   []Customer `json:"customer"`
+	Total       int `json:"total"`
+	Pages       int `json:"pages"`
+	Size        int `json:"size"`
+	CurrentPage int `json:"current_page"`
 }

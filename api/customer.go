@@ -4,17 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"jxc/models"
-	"jxc/serializer"
-	"strings"
-	"io/ioutil"
-	"net/http"
-	"strconv"
-	"time"
-
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"io/ioutil"
+	"jxc/models"
+	"jxc/serializer"
+	"net/http"
+	"strconv"
+	"strings"
+
+	//"gopkg.in/go-playground/validator.v9"
 )
 
 //允许同名的客户
@@ -35,10 +34,6 @@ func ListCustomers(c *gin.Context) {
 	}
 
 	var req models.CustReq
-	var customers []models.Customer
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
 
 	err = c.ShouldBind(&req)
 	if err != nil {
@@ -49,39 +44,13 @@ func ListCustomers(c *gin.Context) {
 		return
 	}
 	// 设置分页的默认值
-	req.Page, req.Size = SetDefaultPageAndSize(req.Page, req.Size)
-
+	page, size := SetDefaultPageAndSize(req.Page, req.Size)
 	// 设置排序主键
-	orderField := []string{"customer_id", "com_id", "customer_name", "level", "payment", "payamount", "receiver", "address", "phone"}
-	exist := false
-	fmt.Println("order field: ", req.OrdF)
-	for _, v := range orderField {
-		if req.OrdF == v {
-			exist = true
-			break
-		}
-	}
-	if !exist {
-		req.OrdF = "customer_id"
-	}
-	// 设置排序顺序 desc asc
-	order := 1
-	fmt.Println("order: ", req.Ord)
-	if req.Ord == "desc" {
-		order = -1
-		req.Ord = "desc"
-	} else {
-		order = 1
-		req.Ord = "asc"
-	}
+	orderFields := []string{"customer_id", "com_id", "customer_name", "level", "payment", "payamount", "receiver", "address", "phone"}
+	option := SetPaginationAndOrder(req.OrdF, orderFields, req.Ord, page, size)
 
-	option := options.Find()
-	option.SetLimit(int64(req.Size))
-	option.SetSkip((int64(req.Page) - 1) * int64(req.Size))
 
-	//1从小到大,-1从大到小
-	option.SetSort(bson.D{{req.OrdF, order}})
-
+	// TODO:这些搜索条件是否可以从这个函数中提取出来
 	//IdMin,IdMax
 	if req.IdMin > req.IdMax {
 		t := req.IdMax
@@ -132,39 +101,25 @@ func ListCustomers(c *gin.Context) {
 	//com_id, _ := strconv.Atoi(com.ComId)
 	filter["com_id"] = com.ComId
 
-	fmt.Println("filter: ", filter)
+	var customers []models.Customer
+	customer :=  models.Customer{}
 
-	// 当前请求页面的数据
-	cur, err := models.Client.Collection("customer").Find(ctx, filter, option)
+	customers, err = customer.FindAll(filter, option)
 	if err != nil {
-		fmt.Println("error while setting findoptions: ", err)
+		fmt.Println("error found decoding customer: ", err)
 		return
 	}
 
-	for cur.Next(context.TODO()) {
-		var result models.Customer
-		err := cur.Decode(&result)
-		if err != nil {
-			fmt.Println("error found decoding customer: ", err)
-			return
-		}
-		customers = append(customers, result)
-	}
-
 	//查询的总数
-	var total int64
-	cur, _ = models.Client.Collection("customer").Find(ctx, filter)
-	for cur.Next(context.TODO()) {
-		total++
-	}
+	total, _ := customer.Total(filter)
 
 	// 返回查询到的总数，总页数
 	resData := models.ResponseCustomerData{}
 	resData.Customers = customers
-	resData.Total = int(total)
-	resData.Pages = int(total)/int(req.Size) + 1
-	resData.Size = int(req.Size)
-	resData.CurrentPage = int(req.Page)
+	resData.Total = total
+	resData.Pages = total/size + 1
+	resData.Size = size
+	resData.CurrentPage = page
 
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
@@ -187,17 +142,25 @@ func AddCustomer(c *gin.Context) {
 	}
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	customer := models.Customer{}
-
 	_ = json.Unmarshal(data, &customer)
-	collection := models.Client.Collection("customer")
-	result := models.Customer{}
+
+	customer.ComID = com.ComId
+
+
+	//validate := validator.New()
+	//validate.RegisterValidation("my-validate", customFunc)
+	//err = validate.Struct(customer)
+	//if err != nil {
+	//	fmt.Println(err)
+	//	return
+	//}
+	//fmt.Println(err)
+	//SmartPrint(customer)
+	//collection := models.Client.Collection("customer")
+	//result := models.Customer{}
 
 	if !ENABLESAMECUSTOMER { // 不允许重名的情况，先查找数据库是否已经存在记录，如果有，则返回错误码－1
-		filter := bson.M{}
-		filter["com_id"] = com.ComId
-		filter["name"] = customer.Name
-		_ = collection.FindOne(context.TODO(), filter).Decode(&result)
-		if result.Name != "" {
+		if customer.CheckExist() {
 			c.JSON(http.StatusOK, serializer.Response{
 				Code: -1,
 				Msg:  "该客户已经存在",
@@ -206,12 +169,13 @@ func AddCustomer(c *gin.Context) {
 		}
 	}
 	customer.ID = int64(getLastCustomerID())
-	customer.ComID = com.ComId
-	insertResult, err := collection.InsertOne(context.TODO(), customer)
+
+	err = customer.Insert()
 	if err != nil {
 		fmt.Println("Error while inserting mongo: ", err)
+		return
 	}
-	fmt.Println("Inserted a single document: ", insertResult.InsertedID)
+
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Msg:  "Customer create succeeded",
@@ -235,50 +199,26 @@ func UpdateCustomer(c *gin.Context) {
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	_ = json.Unmarshal(data, &updateCus)
 
-	// 更新的条件：更改的时候如果有同名的记录，则要判断是否有与要修改的记录的customer_id相等,如果有不相等的，则返回
-	// 如果只有相等的customer_id, 则允许修改
-	filter := bson.M{}
+	updateCus.ComID = com.ComId
 
-	filter["com_id"] = com.ComId
-	filter["name"] = updateCus.Name
-	collection := models.Client.Collection("customer")
+	//应当使用validator 来检验参数是否正确
 
-	cur, err := collection.Find(context.TODO(), filter)
-	for cur.Next(context.TODO()) {
-		var tempRes models.Customer
-		err := cur.Decode(&tempRes)
-		if err != nil {
-			fmt.Println("error found decoding customer: ", err)
-			return
-		}
-		if tempRes.ID != updateCus.ID {
-			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
-				Msg:  "要修改的客户名已经存在",
-			})
-			return
-		}
-	}
-
-	filter = bson.M{}
-	filter["com_id"] = com.ComId
-	filter["customer_id"] = updateCus.ID
-	// 更新记录
-	result, err := collection.UpdateOne(context.TODO(), filter, bson.M{
-		"$set": bson.M{"name": updateCus.Name,
-			"receiver": updateCus.Receiver,
-			"receiver_phone": updateCus.Phone,
-			"receiver_address": updateCus.Address,
-			"payment": updateCus.Payment,
-			"level": updateCus.Level}})
-	if err != nil {
+	//检查是否重名
+	if !updateCus.UpdateCheck() {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
-			Msg:  "更新失败",
+			Msg:  "Customer name exist",
 		})
 		return
 	}
-	fmt.Println("Update result: ", result	)
+	if err := updateCus.Update(); err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "Customer update failed",
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Msg:  "Customer update succeeded",
@@ -293,7 +233,7 @@ type DeleteCustomerService struct {
 func DeleteCustomer(c *gin.Context) {
 
 	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	if ( (err != nil) || (models.THIS_MODULE != com.ModuleId) ){
+	if err != nil || models.THIS_MODULE != com.ModuleId {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
 			Msg:  "Domain error",
@@ -306,20 +246,18 @@ func DeleteCustomer(c *gin.Context) {
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	_ = json.Unmarshal(data, &d)
 
-	filter := bson.M{}
-
-	filter["com_id"] = com.ComId
-	filter["customer_id"] = d.ID
-	collection := models.Client.Collection("customer")
-	deleteResult, err := collection.DeleteOne(context.TODO(), filter)
-	if err != nil {
+	customer := models.Customer{
+		ComID: com.ComId,
+		ID: d.ID,
+	}
+	if err := customer.Delete(); err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
-			Msg:  "删除用户失败",
+			Msg:  "Customer delete failed",
 		})
 		return
 	}
-	fmt.Println("Delete a single document: ", deleteResult.DeletedCount)
+
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Msg:  "Customer delete succeeded",
