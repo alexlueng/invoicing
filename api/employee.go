@@ -8,11 +8,11 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"io/ioutil"
+	"jxc/auth"
 	"jxc/models"
 	"jxc/serializer"
 	"jxc/util"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -34,7 +34,7 @@ type EmplReq struct {
 	Password  string   `form:"password" json:"password"`     // 登录密码
 	Username  string   `form:"username" json:"username"`     // 用户名
 	Phone     string   `form:"phone" json:"phone"`           // 电话
-	Authority []string `form:"authority[]" json:"authority"` // 权限
+	Authority []int64 `form:"authority[]" json:"authority"` // 权限
 	Position  string   `form:"position" json:"position"`     // 职务
 }
 
@@ -54,8 +54,8 @@ type EmplResponseData struct {
 
 // 获取提交权限数据
 type ReqAuthNote struct {
-	Authid  int64 `json:"authid" form:"authid"`
-	Groupid int64 `json:"groupid" form:"groupid"`
+	Authid  int64 `json:"auth_id" form:"auth_id"`
+	Groupid int64 `json:"group_id" form:"group_id"`
 }
 
 //
@@ -67,15 +67,11 @@ type ReqAuth struct {
 // 获取所有人员
 func AllEmployees(c *gin.Context) {
 	// 根据域名获取comid
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != com.ModuleId {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	// 根据域名得到com_id
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 	// 收集提交过来的参数，如页码、搜索关键字
 	var req EmplReq
 	var users []models.User
@@ -84,7 +80,7 @@ func AllEmployees(c *gin.Context) {
 	defer cancel()
 
 	// 验证提交过来的数据
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -140,7 +136,7 @@ func AllEmployees(c *gin.Context) {
 
 	// 每个查询都要带着com_id去查
 	//com_id, _ := strconv.Atoi(com.ComId)
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 
 	// 当前请求页面的数据
 	cur, err := models.Client.Collection("users").Find(ctx, filter, option)
@@ -196,15 +192,11 @@ func AllEmployees(c *gin.Context) {
 // 添加人员信息
 func AddEmployee(c *gin.Context) {
 	// 根据域名获取comid
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != com.ModuleId {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	// 根据域名得到com_id
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 	// 收集提交过来的参数，如页码、搜索关键字
 	var req EmplReq
 	var user models.User
@@ -213,7 +205,7 @@ func AddEmployee(c *gin.Context) {
 
 	// 验证提交的数据
 	// 验证提交过来的数据
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -226,11 +218,26 @@ func AddEmployee(c *gin.Context) {
 
 	createBy := int64(1) // TODO
 
-	// 指定数据集
-	collection := models.Client.Collection("users")
+	// 判断这个手机号是不是超级管理员
+	collection := models.Client.Collection("company")
 	filter := bson.M{}
+	filter["com_id"] = claims.ComId
 	filter["phone"] = req.Phone
-	filter["com_id"] = com.ComId
+	var company models.Company
+	err = collection.FindOne(context.TODO(), filter).Decode(&company)
+	if err == nil {
+		// 说明这个手机是超级管理员
+		c.JSON(http.StatusOK, serializer.Response{
+			Code:  -1,
+			Msg:   "管理员不能重复注册",
+		})
+		return
+	}
+	// 指定数据集
+	collection = models.Client.Collection("users")
+	filter = bson.M{}
+	filter["phone"] = req.Phone
+	filter["com_id"] = claims.ComId
 
 	_ = collection.FindOne(context.TODO(), filter).Decode(&user)
 	if user.Username != "" {
@@ -246,6 +253,7 @@ func AddEmployee(c *gin.Context) {
 	// 获取用户id
 	user_id, err := util.GetTableId("users")
 	if err != nil {
+
 		c.JSON(http.StatusOK, serializer.Response{
 			Code:  -1,
 			Data:  nil,
@@ -259,7 +267,7 @@ func AddEmployee(c *gin.Context) {
 
 	// 插入数据库
 	user.Username = req.Username
-	user.ComId = com.ComId
+	user.ComId = claims.ComId
 	user.Password = pssword
 	user.Phone = req.Phone
 	user.UserID = user_id
@@ -294,15 +302,11 @@ func AddEmployee(c *gin.Context) {
 // 更新人员信息
 func UpdateEmployee(c *gin.Context) {
 	// 根据域名获取comid
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != com.ModuleId {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	// 根据域名得到com_id
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 	// 收集提交过来的参数
 	var req EmplReq
 	var user, user2 models.User
@@ -312,7 +316,7 @@ func UpdateEmployee(c *gin.Context) {
 
 	// 验证提交的数据
 	// 验证提交过来的数据
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -343,7 +347,7 @@ func UpdateEmployee(c *gin.Context) {
 
 	filter["user_id"] = bson.M{"$ne": req.UserId}
 	filter["phone"] = req.Phone
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 
 	_ = collection.FindOne(context.TODO(), filter).Decode(&user2)
 	if user2.Username != "" {
@@ -397,15 +401,11 @@ func UpdateEmployee(c *gin.Context) {
 // 删除人员
 func DeleteEmployee(c *gin.Context) {
 	// 根据域名获取comid
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != com.ModuleId {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	// 根据域名得到com_id
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 	// 收集提交过来的参数
 	var req EmplReq
 	var user models.User
@@ -414,7 +414,7 @@ func DeleteEmployee(c *gin.Context) {
 
 	// 验证提交的数据
 	// 验证提交过来的数据
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -467,22 +467,18 @@ func DeleteEmployee(c *gin.Context) {
 // 获取职位列表
 func AllPositions(c *gin.Context) {
 	// 根据域名获取comid
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != com.ModuleId {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	// 根据域名得到com_id
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 
 	// 指定数据集
 	collection := models.Client.Collection("company")
 	company := models.Company{}
 	filter := bson.M{}
-	filter["com_id"] = com.ComId
-	err = collection.FindOne(context.TODO(), filter).Decode(&company)
+	filter["com_id"] = claims.ComId
+	err := collection.FindOne(context.TODO(), filter).Decode(&company)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -500,15 +496,11 @@ func AllPositions(c *gin.Context) {
 // 获取所有权限节点列表
 func AllAuthNote(c *gin.Context) {
 	// 根据域名获取comid
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != com.ModuleId {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	// 根据域名得到com_id
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 
 	// 指定数据集
 	collection := models.Client.Collection("auth_note")
@@ -526,6 +518,7 @@ func AllAuthNote(c *gin.Context) {
 		return
 	}
 	for cur.Next(context.TODO()) {
+		auth_note = models.AuthNote{}
 		err = cur.Decode(&auth_note)
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
@@ -537,7 +530,7 @@ func AllAuthNote(c *gin.Context) {
 		auth_notes = append(auth_notes, auth_note)
 	}
 	// 获取仓库
-	cur, err = warehouseCollection.Find(context.TODO(), bson.M{"com_id": com.ComId})
+	cur, err = warehouseCollection.Find(context.TODO(), bson.M{"com_id": claims.ComId})
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -569,20 +562,16 @@ func AllAuthNote(c *gin.Context) {
 // 更新用户权限
 func UpdateAuthority(c *gin.Context) {
 	// 根据域名获取comid
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != com.ModuleId {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	// 根据域名得到com_id
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 
 	// 接收数据
 	var req ReqAuth
 	data, _ := ioutil.ReadAll(c.Request.Body)
-	err = json.Unmarshal(data, &req)
+	err := json.Unmarshal(data, &req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -611,7 +600,7 @@ func UpdateAuthority(c *gin.Context) {
 
 	// 更新条件
 	filter := bson.M{}
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 	filter["user_id"] = req.UserId
 
 	// 更新数据内容

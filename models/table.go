@@ -16,6 +16,8 @@ type User struct {
 	CreateBy  int64       `json:"create_by" bson:"create_by"`  // 创建者id
 	ModifyAt  int64       `json:"modify_at" bson:"modify_at"`  // 最后修改时间戳
 	ModifyBy  int64       `json:"modify_by" bson:"modify_by"`  // 最后修改者id
+
+	Urls []string `json:"urls"` // 权限路由，不在数据库中存储
 }
 
 // 公司表数据结构
@@ -23,13 +25,16 @@ type Company struct {
 	ComId          int64  `json:"com_id" bson:"com_id"`
 	ComName        string `json:"com_name" bson:"com_name"`
 	ExpirationDate int64  `json:"expiration_date" bson:"expiration_date"` // 到期时间
-	//Delivery       interface{} `json:"delivery" bson:"delivery"`               // 配送方式
+
 	Units               interface{} `json:"units" bson:"units"`                                 //计量单位
 	Payment             interface{} `json:"payment" bson:"payment"`                             //结算方式
 	Module              string      `json:"module" bson:"module"`                               //平台名称
 	Developer           string      `json:"developer" bson:"developer"`                         //开发名称
 	Position            interface{} `bson:"position" json:"position"`                           //职务
 	DefaultProfitMargin int64       `json:"default_profit_margin" bson:"default_profit_margin"` //默认利润率
+	Admin               string      `json:"admin" bson:"admin"`
+	Telephone           string      `json:"phone" bson:"phone"`
+	Password            string      `json:"password" bson:"password"`
 }
 
 // 配送方式数据格式
@@ -55,6 +60,7 @@ type Domain struct {
 	ComId    int64  `bson:"comid" json:"comid"`       // 公司id
 	Domain   string `bson:"domain" json:"domain"`     //
 	ModuleId int64  `bson:"moduleid" json:"moduleid"` //
+	Status   bool   `bson:"status" json:"status"`     // 域名可用状态，false情况下无法登录
 }
 
 // 职位表
@@ -67,17 +73,18 @@ type Position struct {
 // 权限节点
 // 本模块的所有公司通用这段数据，所以不添加comid
 type AuthNote struct {
-	AuthId  int64  `json:"authid" bson:"authid"` // 节点id
-	Note    string `json:"note" bson:"note"`     // 节点名
-	Group   string `json:"group" bson:"group"`   // 组名
-	GroupId int64  `json:"groupid" bson:"groupid"`
+	AuthId  int64    `json:"auth_id" bson:"auth_id"`   // 节点id
+	Note    string   `json:"note" bson:"note"`         // 节点名
+	Group   string   `json:"group" bson:"group"`       // 组名
+	GroupId int64    `json:"group_id" bson:"group_id"` // 权限节点组id，5为仓库权限
+	Urls    []string `json:"urls" bson:"urls"`         // 这里记录了这个节点所有的路由
 }
 
 // 路由信息
 type Router struct {
-	RouterId   int64  `json:"routerid" bson:""` // 路由id
-	RouterName string `json:"router_name"`      // 路由名
-	Router     string `json:"router"`           // 访问路径
+	RouterId   int64  `json:"router_id" bson:"router_id"`     // 路由id
+	RouterName string `json:"router_name" bson:"router_name"` // 路由名
+	Url        string `json:"url" bson:"url"`                 //访问路径
 }
 
 // 获取最新的主键ID
@@ -167,6 +174,7 @@ type SupplierOrder struct {
 	WarehouseID   int64   `json:"warehouse_id" bson:"warehouse_id"`     // 仓库id
 	WarehouseName string  `json:"warehouse_name" bson:"warehouse_name"` // 仓库名
 	SupplierID    int64   `json:"supplier_id" bson:"supplier_id"`       // 供应商id
+	Supplier      string  `json:"supplier" bson:"supplier"`             // 供应商名
 	Contacts      string  `json:"contacts" bson:"contacts"`             //供应商的联系人
 	Receiver      string  `json:"receiver" bson:"receiver"`             //本单的收货人
 	ReceiverPhone string  `json:"receiver_phone" bson:"receiver_phone"` //本单的收货人电话
@@ -223,7 +231,7 @@ type CustomerSubOrder struct {
 	OrderId    int64  `json:"order_id" bson:"order_id"`         // 订单id
 
 	CustomerID    int64   `json:"customer_id" bson:"customer_id"`
-	CustomerName    string   `json:"customer_name" bson:"customer_name"`
+	CustomerName  string  `json:"customer_name" bson:"customer_name"`
 	ProductID     int64   `json:"product_id" bson:"product_id"`
 	Product       string  `json:"product" bson:"product"`               // 商品名称
 	Contacts      string  `json:"contacts" bson:"contacts"`             //客户的联系人
@@ -231,15 +239,18 @@ type CustomerSubOrder struct {
 	ReceiverPhone string  `json:"receiver_phone" bson:"receiver_phone"` //本单的收货人电话
 	Price         float64 `json:"price" bson:"price"`                   //本项价格
 	Amount        int64   `json:"amount" bson:"amount"`                 //本项购买总数量
-	ExtraAmount   float64 `json:"extra_amount" bson:"extra_amount"`     //本单优惠或折扣金额
-	Delivery      string  `json:"delivery" bson:"delivery"`             // 快递方式
-	DeliveryCode  string  `json:"delivery_code" bson:"delivery_code"`   // 快递号
-	OrderTime     int64   `json:"order_time" bson:"order_time"`         // 下单时间
-	ShipTime      int64   `json:"ship_time" bson:"ship_time"`           // 发货时间
-	ConfirmTime   int64   `json:"confirm_time" bson:"confirm_time"`     // 确认订单时间
-	PayTime       int64   `json:"pay_time" bson:"pay_time"`             // 订单结算时间
-	FinishTime    int64   `json:"finish_time" bson:"finish_time"`       // 供应结束时间
-	Status        int64   `json:"status" bson:"status"`                 // 订单状态
+
+	WarehouseAmount int64   `json:"warehouse_amount" bson:"warehouse_amount"` // 仓库发货的数量
+	SupplierAmount  int64   `json:"supplier_amount" bson:"supplier_amount"`   // 供应商发货的数量
+	ExtraAmount     float64 `json:"extra_amount" bson:"extra_amount"`         //本单优惠或折扣金额
+	Delivery        string  `json:"delivery" bson:"delivery"`                 // 快递方式
+	DeliveryCode    string  `json:"delivery_code" bson:"delivery_code"`       // 快递号
+	OrderTime       int64   `json:"order_time" bson:"order_time"`             // 下单时间
+	ShipTime        int64   `json:"ship_time" bson:"ship_time"`               // 发货时间
+	ConfirmTime     int64   `json:"confirm_time" bson:"confirm_time"`         // 确认订单时间
+	PayTime         int64   `json:"pay_time" bson:"pay_time"`                 // 订单结算时间
+	FinishTime      int64   `json:"finish_time" bson:"finish_time"`           // 供应结束时间
+	Status          int64   `json:"status" bson:"status"`                     // 订单状态
 
 	// operator_id操作人
 	// 如何拆分子订单

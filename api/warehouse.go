@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"go.mongodb.org/mongo-driver/bson"
 	"io/ioutil"
+	"jxc/auth"
 	"jxc/service"
 	"jxc/util"
 	"time"
@@ -15,29 +16,21 @@ import (
 	"jxc/models"
 	"jxc/serializer"
 	"net/http"
-	"strings"
+
 )
 
 // 仓库名和仓库地址是否可以重复
 const ENABLESAMEWAREHOUSE = false
 
 func AllWarehouses(c *gin.Context) {
-	// 根据域名得到com_id
-	//用postman调试的时候需要注释
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	// 获取token，解析token获取登录用户信息
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
 
 	var req models.WarehouseReq
 	var warehouses []models.Warehouse
 
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -121,18 +114,22 @@ func AllWarehouses(c *gin.Context) {
 		warehouseStuff := models.WarehouseStuff{}
 		var warehouses_ids []int64
 		stuffsCollection := models.Client.Collection("warehouse_stuffs")
-		stuffsCur, _ := stuffsCollection.Find(context.TODO(), bson.M{"com_id": com.ComId, "user_id": req.Stuff})
+		stuffsCur, _ := stuffsCollection.Find(context.TODO(), bson.M{"com_id": claims.ComId, "user_id": req.Stuff})
 		for stuffsCur.Next(context.TODO()) {
 			_ = stuffsCur.Decode(&warehouseStuff)
 			warehouses_ids = append(warehouses_ids, warehouseStuff.WarehouseId)
 		}
 		warehouses_ids = util.RemoveRepeatedElementInt64(warehouses_ids)
-		filter["warehouse_id"] = bson.M{"$in": warehouses_ids}
+		if len(warehouses_ids) > 0 {
+			fmt.Println("warehouses_id: ", warehouses_ids)
+			filter["warehouse_id"] = bson.M{"$in": warehouses_ids}
+		}
+
 	}
 
 	// 每个查询都要带着com_id
 	//com_id, _ := strconv.Atoi(com.ComId)
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 	// all conditions are set then start searching
 	collection := models.Client.Collection(("warehouse"))
 	cur, err := collection.Find(context.TODO(), filter, option)
@@ -152,7 +149,7 @@ func AllWarehouses(c *gin.Context) {
 		warehouses_ids = append(warehouses_ids, result.ID)
 	}
 	// 获取这批仓库的职员
-	warehousesStuffs, err := service.FindWarehouseStuffs(warehouses_ids, com.ComId)
+	warehousesStuffs, err := service.FindWarehouseStuffs(warehouses_ids, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -210,20 +207,14 @@ type ReqWarehouse struct {
 }
 
 func AddWarehouse(c *gin.Context) {
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "Domain error",
-		})
-		return
-	}
+	// 获取token，解析token获取登录用户信息
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
 
 	var req ReqWarehouse
-	user_id := int64(1)
+	user_id := claims.UserId
 
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -238,7 +229,7 @@ func AddWarehouse(c *gin.Context) {
 	if !ENABLESAMEWAREHOUSE { //仓库重名检测，
 		var result models.Warehouse
 		filter := bson.M{}
-		filter["com_id"] = com.ComId
+		filter["com_id"] = claims.ComId
 
 		filter["warehouse_name"] = req.Name
 		_ = collection.FindOne(context.TODO(), filter).Decode(&result)
@@ -253,7 +244,7 @@ func AddWarehouse(c *gin.Context) {
 	if !ENABLESAMEWAREHOUSE { //仓库地址重名检测，
 		var result models.Warehouse
 		filter := bson.M{}
-		filter["com_id"] = com.ComId
+		filter["com_id"] = claims.ComId
 
 		filter["warehouse_address"] = req.Address
 		_ = collection.FindOne(context.TODO(), filter).Decode(&result)
@@ -282,7 +273,7 @@ func AddWarehouse(c *gin.Context) {
 	}
 
 	// 获取用户信息
-	userInfo, err := service.FindUser(user_ids, com.ComId)
+	userInfo, err := service.FindUser(user_ids, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -303,7 +294,7 @@ func AddWarehouse(c *gin.Context) {
 	warehouse_id, _ := util.GetTableId("warehouse")
 	warehouse := models.Warehouse{
 		ID:                 warehouse_id,
-		ComID:              com.ComId,
+		ComID:              claims.ComId,
 		Name:               req.Name,
 		Address:            req.Address,
 		WarehouseAdminId:   req.Manager,
@@ -332,7 +323,7 @@ func AddWarehouse(c *gin.Context) {
 			return
 		}
 		stuffs = append(stuffs, models.WarehouseStuff{
-			ComID:         com.ComId,
+			ComID:         claims.ComId,
 			UserId:        userInfo[val].UserID,
 			Username:      userInfo[val].Username,
 			WarehouseId:   warehouse_id,
@@ -349,7 +340,7 @@ func AddWarehouse(c *gin.Context) {
 		return
 	}
 
-	data, _ := service.FindOneWarehouse(warehouse_id, com.ComId)
+	data, _ := service.FindOneWarehouse(warehouse_id, claims.ComId)
 
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
@@ -360,20 +351,14 @@ func AddWarehouse(c *gin.Context) {
 }
 
 func UpdateWarehouse(c *gin.Context) {
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "Domain error",
-		})
-		return
-	}
+	// 获取token，解析token获取登录用户信息
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
 
 	var req ReqWarehouse
-	user_id := int64(1)
+	user_id := claims.ComId
 
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -385,7 +370,7 @@ func UpdateWarehouse(c *gin.Context) {
 	// 仓库名，仓库地址是否可以重复
 	//com_id, _ := strconv.Atoi(com.ComId)
 	filter := bson.M{}
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 	filter["warehouse_name"] = req.Name
 	collection := models.Client.Collection("warehouse")
 	cur, err := collection.Find(context.TODO(), filter)
@@ -409,7 +394,7 @@ func UpdateWarehouse(c *gin.Context) {
 	}
 
 	filter = bson.M{}
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 	filter["warehouse_address"] = req.Address
 
 	cur, err = collection.Find(context.TODO(), filter)
@@ -448,7 +433,7 @@ func UpdateWarehouse(c *gin.Context) {
 	}
 
 	// 获取用户信息
-	userInfo, err := service.FindUser(user_ids, com.ComId)
+	userInfo, err := service.FindUser(user_ids, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -494,7 +479,7 @@ func UpdateWarehouse(c *gin.Context) {
 			return
 		}
 		stuffs = append(stuffs, models.WarehouseStuff{
-			ComID:         com.ComId,
+			ComID:         claims.ComId,
 			UserId:        userInfo[val].UserID,
 			Username:      userInfo[val].Username,
 			WarehouseId:   req.ID,
@@ -502,7 +487,7 @@ func UpdateWarehouse(c *gin.Context) {
 		})
 	}
 
-	err = service.UpdateWarehouse(req.ID, com.ComId, warehouse, stuffs)
+	err = service.UpdateWarehouse(req.ID, claims.ComId, warehouse, stuffs)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -510,7 +495,7 @@ func UpdateWarehouse(c *gin.Context) {
 		})
 		return
 	}
-	data, _ := service.FindOneWarehouse(req.ID, com.ComId)
+	data, _ := service.FindOneWarehouse(req.ID, claims.ComId)
 	//fmt.Println("Update result: ", result)
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
@@ -525,15 +510,9 @@ type WarehouseService struct {
 }
 
 func DeleteWarehouse(c *gin.Context) {
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "Domain error",
-		})
-		return
-	}
+	// 获取token，解析token获取登录用户信息
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
 
 	var d WarehouseService
 
@@ -542,7 +521,7 @@ func DeleteWarehouse(c *gin.Context) {
 
 	filter := bson.M{}
 	//com_id, _ := strconv.Atoi(com.ComId)
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 	filter["warehouse_id"] = d.ID
 	collection := models.Client.Collection("warehouse")
 	deleteResult, err := collection.DeleteOne(context.TODO(), filter)
@@ -563,15 +542,10 @@ func DeleteWarehouse(c *gin.Context) {
 // 获取仓库详情，有哪些商品，多少库存
 func WarehouseDetail(c *gin.Context) {
 	// 根据域名得到com_id
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 
 	type ReqWarehouseDetail struct {
 		models.BaseReq
@@ -583,7 +557,7 @@ func WarehouseDetail(c *gin.Context) {
 	var req ReqWarehouseDetail
 
 	// 获取请求数据
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -593,7 +567,7 @@ func WarehouseDetail(c *gin.Context) {
 	}
 
 	// 获取仓库信息
-	warehouse, err := service.FindOneWarehouse(req.WarehouseId, com.ComId)
+	warehouse, err := service.FindOneWarehouse(req.WarehouseId, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -604,9 +578,11 @@ func WarehouseDetail(c *gin.Context) {
 
 	// 组装搜索条件
 
+	var warehouseIdArr []int64
+	warehouseIdArr = append(warehouseIdArr, req.WarehouseId)
 
 	// 根据product字段，去获取库存信息
-	wosProduct, err := service.GetProductWos(warehouse.Product, com.ComId, req.WarehouseId)
+	wosProduct, err := service.GetProductWos(warehouse.Product, claims.ComId, warehouseIdArr)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,

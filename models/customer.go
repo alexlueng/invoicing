@@ -20,13 +20,14 @@ type Customer struct {
 	Address   string `json:"receiver_address" form:"address" bson:"receiver_address"`
 	Phone     string `json:"receiver_phone" form:"phone" bson:"receiver_phone"`
 	//due string
+	LastSettlement int64 `json:"last_settlement" bson:"last_settlement"` // 上次结算时间
 }
 
 func (c Customer) FindAll(filter bson.M, options *options.FindOptions) ([]Customer, error) {
 	var result []Customer
 	cur, err := Client.Collection("customer").Find(context.TODO(), filter, options)
+	//defer cur.Close(context.TODO())
 	if err != nil {
-		//logrus.Error("Can't get customer list")
 		fmt.Println("Can't get customer list")
 		return nil, err
 	}
@@ -126,19 +127,22 @@ func (c Customer) Delete() error {
 	return nil
 }
 
+func (c *Customer) FindByID(id int64) (*Customer, error) {
+	filter := bson.M{}
+	filter["com_id"] = c.ComID
+	filter["customer_id"] = id
+	collection := Client.Collection("customer")
+	err := collection.FindOne(context.TODO(), filter).Decode(c)
+	if err != nil {
+		fmt.Println("inner error: ", err)
+		return nil, err
+	}
+	return c, nil
+}
+
 //用户提交过来的数据
 type CustReq struct {
-	IdMin int `form:"idmin"` //okid界于[idmin 和 idmax] 之间的数据
-	IdMax int `form:"idmax"` //ok
-	//本页面的搜索字段 sf固定等于customer_name， key的值为用户提交过来的客户名关键字
-	Key  string `form:"key"`              //用户提交过来的模糊搜索关键字
-	Sf   string `form:"sf"`               //用户模糊搜索的字段  search field
-	Page int64  `json:"page" form:"page"` //ok用户查询的是哪一页的数据
-	Size int64  `json:"size" form:"size"` //ok用户希望每页展现多少条数据
-	OrdF string `json:"ordf" form:"ordf"` //ok用户排序字段 order field
-	Ord  string `json:"ord" form:"ord"`   //ok顺序还是倒序排列  ord=desc 倒序，ord = asc 升序
-	TMin int    `form:"tmin"`             //时间最小值[tmin,tmax)
-	TMax int    `form:"tmax"`             //时间最大值
+	BaseReq
 	//本页面定制的搜索字段
 	Name     string `json:"customer_name" form:"customer_name"`
 	Level    string `json:"level" form:"level"`

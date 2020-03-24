@@ -29,13 +29,17 @@ func FindOneWarehouse(warehouse_id, com_id int64) (*models.Warehouse, error) {
 	return &warehouse, nil
 }
 
+// 如果没有提交仓库id则获取公司所有仓库信息
+// 如果有则获取所需部分
 func FindWarehouse(warehouse_ids []int64, com_id int64) (map[int64]models.Warehouse, error) {
 	collection := models.Client.Collection("warehouse")
 	var warehouse models.Warehouse
 	warehouseArr := make(map[int64]models.Warehouse) // map[Warehouse_id]models.Warehouse
 
 	filter := bson.M{}
-	filter["warehouse_id"] = bson.M{"$in": warehouse_ids}
+	if warehouse_ids != nil {
+		filter["warehouse_id"] = bson.M{"$in": warehouse_ids}
+	}
 	filter["com_id"] = com_id
 
 	cur, err := collection.Find(context.TODO(), filter)
@@ -74,6 +78,9 @@ func FindOneWarehouseStuffs(warehouse_id int64, com_id int64) ([]models.Warehous
 
 // 查找一批仓库的职员
 func FindWarehouseStuffs(warehouse_id []int64, com_id int64) (map[int64][]models.WarehouseStuff, error) {
+	if len(warehouse_id) == 0 {
+		return nil, nil
+	}
 	collection := models.Client.Collection("warehouse_stuffs")
 	cur, err := collection.Find(context.TODO(), bson.M{"warehouse_id": bson.M{"$in": warehouse_id}, "com_id": com_id})
 	// 返回数据格式 map[warehouse_id][]warehouseStuffs
@@ -130,8 +137,14 @@ func UpdateWarehouse(warehouse_id, com_id int64, warehouse interface{}, stuffs [
 }
 
 // 更新仓库商品记录
-func UpdateWarehouseProduct(warehouse_id, com_id int64, product []int64) {
-	//collection := models.Client.Collection("warehouse")
-	//filter :=
-	//collection.UpdateOne(context.TODO(),bson.M{""})
+func UpdateWarehouseProduct(warehouseId, comId int64, product []int64) error {
+	collection := models.Client.Collection("warehouse")
+	filter := bson.M{}
+	filter["warehouse_id"] = warehouseId
+	filter["com_id"] = comId
+	_, err := collection.UpdateOne(context.TODO(), filter, bson.M{"$set": bson.M{"product": product}})
+	if err != nil {
+		return err
+	}
+	return nil
 }

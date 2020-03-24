@@ -6,12 +6,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"jxc/auth"
 	"jxc/models"
 	"jxc/serializer"
 	"jxc/service"
 	"jxc/util"
 	"net/http"
-	"strings"
 )
 
 // 商品库存实例相关接口
@@ -34,20 +34,13 @@ type ReqCreateWosExamples struct {
 
 // 获取商品库存
 func ProductWos(c *gin.Context) {
-	// 根据域名获取comid
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != com.ModuleId {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	// 获取token，解析token获取登录用户信息
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
 
 	req := ReqProductStock{}
 	// 验证提交过来的数据
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -55,8 +48,8 @@ func ProductWos(c *gin.Context) {
 		})
 		return
 	}
-
-	productCount, err := service.GetProductWos(req.Products, com.ComId, 0)
+	var arr []int64
+	productCount, err := service.GetProductWos(req.Products, claims.ComId, arr)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -78,21 +71,16 @@ func ProductWos(c *gin.Context) {
 // 创建库存实例，凭空多出的库存
 func CreateWosInstance(c *gin.Context) {
 	// 根据域名获取comid
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != com.ModuleId {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 	// TODO 用户id设置为1
 	//user_id := int64(1)
 	req := service.WosExamplesData{}
 	var insertData []interface{}
 	// 验证提交过来的数据
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -102,7 +90,7 @@ func CreateWosInstance(c *gin.Context) {
 	}
 
 	// 获取仓库信息
-	warehouse, err := service.FindOneWarehouse(req.WarehouseId, com.ComId)
+	warehouse, err := service.FindOneWarehouse(req.WarehouseId, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -112,7 +100,7 @@ func CreateWosInstance(c *gin.Context) {
 	}
 
 	// 获取商品信息
-	product, err := service.FindOneProduct(req.Product, com.ComId)
+	product, err := service.FindOneProduct(req.Product, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -124,19 +112,19 @@ func CreateWosInstance(c *gin.Context) {
 	instanceId, _ := util.GetTableId("instance")
 	instance := models.GoodsInstance{
 		InstanceId:        instanceId,
-		ComID:             com.ComId,
+		ComID:             claims.ComId,
 		Type:              0,
 		SrcType:           0, // 没有来源
 		SrcId:             0,
 		SrcTitle:          "",
-		SrcOrderId:        0,// 没有来源，所以来源订单id为0
+		SrcOrderId:        0, // 没有来源，所以来源订单id为0
 		SrcOrderSn:        "",
 		SrcSubOrderId:     0,
 		SrcSubOrderSn:     "",
 		DestType:          3, // 去向仓库
 		DestId:            warehouse.ID,
 		DestTitle:         warehouse.Name,
-		DestOrderId:       0,// 发给仓库，所以没有去向订单id
+		DestOrderId:       0, // 发给仓库，所以没有去向订单id
 		DestOrderSn:       "",
 		DestSubOrderId:    0,
 		DestSubOrderSn:    "",
@@ -150,7 +138,7 @@ func CreateWosInstance(c *gin.Context) {
 		ReceiverPhone:     "",
 		SupplierPrice:     0,
 		CustomerPrice:     0,
-		Amount:            0,
+		Amount:            req.Num,
 		ExtraAmount:       0,
 		Delivery:          "",
 		DeliveryCode:      "",
@@ -160,10 +148,15 @@ func CreateWosInstance(c *gin.Context) {
 		PayTime:           0,
 		FinishTime:        0,
 		Status:            4, //已确认
-		SettlementOrderSN: "",
-		Settlement:        0,
+		//SettlementOrderSN: "",
+		//Settlement:        0,
 	}
 	insertData = append(insertData, instance)
+
+	// 整理仓库中商品种类数据
+	warehouse.Product = append(warehouse.Product, product.ProductID)
+	// 去重
+	warehouse.Product = util.RemoveRepeatedElementInt64(warehouse.Product)
 
 	err = service.AddGoodsInstance(insertData)
 	if err != nil {
@@ -173,6 +166,11 @@ func CreateWosInstance(c *gin.Context) {
 		})
 		return
 	}
+
+	// 修改查看商品种类
+	service.UpdateWarehouseProduct(warehouse.ID, claims.ComId, warehouse.Product)
+	// 修改商品表显示库存
+	service.UpdateProductStock(product.ProductID, (product.Stock + req.Num), claims.ComId)
 
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
@@ -193,15 +191,11 @@ type ResponseWarehouseData struct {
 // 仓库实例列表
 func AllWosInstance(c *gin.Context) {
 	// 根据域名获取comid
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != com.ModuleId {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	// 根据域名得到com_id
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 
 	type ReqAllWosInstance struct {
 		models.BaseReq
@@ -215,7 +209,7 @@ func AllWosInstance(c *gin.Context) {
 	var instances []models.GoodsInstance
 
 	// 获取请求数据
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -225,7 +219,7 @@ func AllWosInstance(c *gin.Context) {
 	}
 
 	filter := bson.M{}
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 	filter["place_id"] = req.WarehouseId
 	filter["product_id"] = req.ProductId
 

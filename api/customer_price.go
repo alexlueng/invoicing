@@ -3,11 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"strings"
-
 	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"jxc/auth"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -22,19 +21,22 @@ import (
 func AddCustomerPrice(c *gin.Context) {
 	//com_id customer_id customer_name product_id product_name price
 
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
+	//com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
 	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	//if err != nil || models.THIS_MODULE != int(com.ModuleId) {
+	//	c.JSON(http.StatusOK, serializer.Response{
+	//		Code: -1,
+	//		Msg:  "域名错误",
+	//	})
+	//	return
+	//}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
 
 	var customerProductPrice models.CustomerProductPrice
 	data, _ := ioutil.ReadAll(c.Request.Body)
-	err = json.Unmarshal(data, &customerProductPrice)
+	err := json.Unmarshal(data, &customerProductPrice)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -43,8 +45,71 @@ func AddCustomerPrice(c *gin.Context) {
 		return
 	}
 
+	if customerProductPrice.DefaultPrice > 0 {
+		// 修改默认价格
+		// 在商品表，客户商品价格表中都要修改
+		// 在客户商品价格表中，把原来的默认价格记为false,再插入一条新的记录
+		fmt.Println("execute here")
+
+		fmt.Println("customer id is: ", customerProductPrice.CustomerID)
+		fmt.Println("product id is: ", customerProductPrice.ProductID)
+		filter := bson.M{}
+		//filter["com_id"] = com.ComId
+		filter["com_id"] = claims.ComId
+		filter["product_id"] = customerProductPrice.ProductID
+		//filter["customer_id"] = customerProductPrice.CustomerID
+		filter["is_valid"] = true
+		collection := models.Client.Collection("customer_product_price")
+
+		var oldRecord models.CustomerProductPrice
+
+		err := collection.FindOne(context.TODO(), filter).Decode(&oldRecord)
+		if err != nil {
+			fmt.Println("can't find old record: ", err)
+			return
+		}
+
+		newRecord := oldRecord
+		newRecord.Price = customerProductPrice.Price
+
+		// 将旧记录设为false
+		updateResult, err := collection.UpdateOne(context.TODO(), filter, bson.M{
+			"$set": bson.M{"is_valid": false}})
+		if err != nil {
+			fmt.Println("Can't update old record: ", err)
+			return
+		}
+		fmt.Println("update old record: ", updateResult.UpsertedID)
+
+		// 加入一条新记录
+		insertResult, err := collection.InsertOne(context.TODO(), newRecord)
+		if err != nil {
+			fmt.Println("Can't not insert new record: ", err)
+			return
+		}
+		fmt.Println("insert new record: ", insertResult.InsertedID)
+
+
+		filter = bson.M{}
+		filter["product_id"] = customerProductPrice.ProductID
+		collection = models.Client.Collection("product")
+		updateResult, err = collection.UpdateOne(context.TODO(), filter, bson.M{
+			"$set": bson.M{"default_price": customerProductPrice.DefaultPrice}})
+		if err != nil {
+			fmt.Println("Can't update default price: ", err)
+			return
+		}
+		fmt.Println("update default product price: ", updateResult.UpsertedID)
+
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: 200,
+			Msg:  "update default price success",
+		})
+		return
+	}
+
 	//customerProductPrice.ComID = com.ComId
-	customerProductPrice.ComID = com.ComId
+	customerProductPrice.ComID = claims.ComId
 	// 加上一个时间戳，以及一个有效值
 	timestamp := time.Now().Unix()
 	customerProductPrice.CreateAt = timestamp
@@ -56,10 +121,21 @@ func AddCustomerPrice(c *gin.Context) {
 
 	// 找到此商品上一个有效价格记录，如果有，则把它设置为无效
 	filter := bson.M{}
-	filter["com_id"] = com.ComId
+	//filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 	filter["product_id"] = customerProductPrice.ProductID
 	filter["customer_id"] = customerProductPrice.CustomerID
 	filter["is_valid"] = true
+	// 找到这个商品的默认价格
+	proCollects := models.Client.Collection("product")
+	var res models.Product
+	err = proCollects.FindOne(context.TODO(), bson.D{{"product_id", customerProductPrice.ProductID}}).Decode(&res)
+	if err != nil {
+		fmt.Println("Can't get default product price: ", err)
+		return
+	}
+
+	customerProductPrice.DefaultPrice = res.DefaultPrice
 
 	var result models.CustomerProductPrice
 	err = collection.FindOne(context.TODO(), filter).Decode(&result)
@@ -68,7 +144,8 @@ func AddCustomerPrice(c *gin.Context) {
 		//保存这条记录，更新product表中的cus_product字段
 		fmt.Println("no document found, this is a new record")
 
-		_, err := collection.InsertOne(context.TODO(), customerProductPrice)
+
+		_, err = collection.InsertOne(context.TODO(), customerProductPrice)
 		if err != nil {
 			fmt.Println("Update customer price failed: ", err)
 			c.JSON(http.StatusOK, serializer.Response{
@@ -134,15 +211,8 @@ type ProductList struct {
 
 func ListCustomerPrice(c *gin.Context) {
 
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
 
 
 	// 得到所有的商品id
@@ -154,7 +224,7 @@ func ListCustomerPrice(c *gin.Context) {
 
 	var req models.CustomerProductPriceReq
 
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -163,7 +233,7 @@ func ListCustomerPrice(c *gin.Context) {
 		return
 	}
 
-	fmt.Println("customer name: ", req.CustomerName)
+	//fmt.Println("customer name: ", req.CustomerName)
 
 	req.Page, req.Size = SetDefaultPageAndSize(req.Page, req.Size)
 
@@ -176,13 +246,7 @@ func ListCustomerPrice(c *gin.Context) {
 	//option.S
 
 	filter := bson.M{}
-	filter["com_id"] = com.ComId
-
-	// 按商品名字去搜索
-	// TODO: 可以优化这个流程，因为这里只选择一种商品，所以不用循环整个product表了
-	if req.Product != "" {
-		filter["product"] = bson.M{"$regex": req.Product}
-	}
+	filter["com_id"] = claims.ComId
 
 	// mongodb中返回指定字段的写法
 	//opts := options.FindOne()
@@ -219,53 +283,90 @@ func ListCustomerPrice(c *gin.Context) {
 	// 可以直接从商品表中的cus_price字段中得到已有售价记录的客户id
 	// product.cus_price
 	filter = bson.M{}
-	filter["com_id"] = com.ComId
-	if req.CustomerName != "" {
-		filter["customer_name"] = req.CustomerName
+	filter["com_id"] = claims.ComId
+	//if req.CustomerName != "" {
+	//	filter["customer_name"] = req.CustomerName
+	//}
+
+	allProductsID := []int64{}
+	for _, product := range allProducts {
+		allProductsID = append(allProductsID, product.ID)
+		responseData[product.Product] = make(map[string]interface{})
 	}
+	fmt.Println("all productIDs: ", allProductsID)
+
+	// 按商品名字去搜索
+	// TODO: 可以优化这个流程，因为这里只选择一种商品，所以不用循环整个product表了
+	if req.Product != "" {
+		filter["product_name"] = bson.M{"$regex": req.Product}
+	}
+	if req.CustomerName != "" {
+		filter["customer_name"] = bson.M{"$regex": req.CustomerName,}
+	}
+	if len(allProductsID) > 0 {
+		filter["product_id"] = bson.M{"$in": allProductsID}
+	}
+
+	filter["is_valid"] = true
+
+	fmt.Println("filter: ", filter)
+
 	collection = models.Client.Collection("customer_product_price")
 
-	for _, product := range allProducts {
 
-		var customerList []models.CustomerProductPrice
-		for _, id := range product.CusPrice {
-
-			var result models.CustomerProductPrice
-			if req.CustomerName != "" {
-				filter = bson.M{"customer_id": id, "product_name":product.Product, "is_valid": true, "customer_name": req.CustomerName}
-			} else {
-				filter = bson.M{"customer_id": id, "product_name":product.Product, "is_valid": true}
-			}
-
-
-
-			err := collection.FindOne(context.TODO(), filter).Decode(&result)
-
-			if err != nil {
-				//fmt.Println("error found finding Customers price: ", err)
-				//没有记录
-				//return
-				continue
-			}
-			//fmt.Println("appending: ", result.CustomerName, result.Product, result.Price)
-			customerList = append(customerList, result)
+	cur, err = collection.Find(context.TODO(), filter)
+	if err != nil {
+		fmt.Println("Can't not use or like that: ", err)
+		return
+	}
+	for cur.Next(context.TODO()) {
+		var res models.CustomerProductPrice
+		if err := cur.Decode(&res); err != nil {
+			fmt.Println("err: ", err)
+			return
 		}
-		//fmt.Println("CustomerList: ", customerList)
-		if responseData[product.Product] == nil {
-			responseData[product.Product] = make(map[string]interface{})
+
+		//fmt.Println(res)
+		//responseData[res.Product]["default_price"] = res.DefaultPrice
+		responseData[res.Product]["product_id"] = res.ProductID
+		if responseData[res.Product]["customer_price"] == nil {
+			responseData[res.Product]["customer_price"] = []models.CustomerProductPrice{} //make(map[string]models.CustomerProductPrice)
 		}
-		responseData[product.Product]["default_price"] = product.DefaultPrice
-		responseData[product.Product]["product_id"] = product.ID
-		responseData[product.Product]["customer_price"] = customerList
+		if res.CustomerID == 0 {
+			if responseData[res.Product]["default_price"] == nil {
+				responseData[res.Product]["default_price"] = models.CustomerProductPrice{}
+			}
+			responseData[res.Product]["default_price"] = res
+			continue
+		}
+		responseData[res.Product]["customer_price"] = append(responseData[res.Product]["customer_price"].([]models.CustomerProductPrice), res)
+	}
+
+	if req.CustomerName != "" {
+		filter["customer_name"] = bson.M{"$eq": "default"}
+		cur, err = collection.Find(context.TODO(), filter)
+		if err != nil {
+			fmt.Println("Can't not use or like that: ", err)
+			return
+		}
+		for cur.Next(context.TODO()) {
+			var res models.CustomerProductPrice
+			if err := cur.Decode(&res); err != nil {
+				fmt.Println("err: ", err)
+				return
+			}
+			if responseData[res.Product]["default_price"] == nil {
+				responseData[res.Product]["default_price"] = models.CustomerProductPrice{} //make(map[string]models.CustomerProductPrice)
+			}
+			responseData[res.Product]["default_price"] = res
+		}
 
 	}
 
 
 	var total int64
-	cur, _ = models.Client.Collection("product").Find(context.TODO(), bson.D{})
-	for cur.Next(context.TODO()) {
-		total++
-	}
+	total, _ = models.Client.Collection("product").CountDocuments(context.TODO(), bson.D{{"com_id", claims.ComId}})
+
 
 	res := models.ResponseCustomerProductPriceData{}
 	//res.DefaultPrice = allProducts
@@ -284,30 +385,19 @@ func ListCustomerPrice(c *gin.Context) {
 }
 
 func DeleteCustomerPrice(c *gin.Context) {
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 
 	var req models.CustomerProductPriceReq
 
-	err = c.ShouldBind(&req)
-	if err != nil {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "参数解释错误",
-		})
-		return
-	}
+	data, _ := ioutil.ReadAll(c.Request.Body)
+	_ = json.Unmarshal(data, &req)
 
 	collection := models.Client.Collection("customer_product_price")
 	filter := bson.M{}
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 	filter["product_id"] = req.ProductID
 	filter["customer_id"] = req.CustomerID
 	filter["is_valid"] = true
@@ -320,5 +410,10 @@ func DeleteCustomerPrice(c *gin.Context) {
 	//
 	//pushToArray := bson.M{"$addToSet": bson.M{"cus_price": customerProductPrice.CustomerID}}
 	//
+	c.JSON(http.StatusOK, serializer.Response{
+		Code: 200,
+		Msg:  "Delete customer price success",
+	})
+
 
 }

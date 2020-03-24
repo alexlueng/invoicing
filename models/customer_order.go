@@ -1,5 +1,12 @@
 package models
 
+import (
+	"context"
+	"fmt"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
 const (
 	TOBECONFIRMED = iota + 1
 	TOBEDELIVERED
@@ -33,10 +40,39 @@ type CustomerOrder struct {
 	Status          int64   `json:"status" bson:"status"` // 订单状态，1：待发货 2：待确认（已发货） 3：待付款（已确认） 4：审核通过（已打款） 5：审核不通过 6: 失效
 
 	Products   []CustomerOrderProductsInfo `json:"products"`    // 订单中的商品列表
+	SubOrders  []CustomerSubOrder          `json:"sub_orders"`  // 子订单
 	OperatorID int64                       `json:"operator_id"` // 本次订单的操作人，对应user_id
 
 	TransportationExpense float64 `json:"transportation_expense"` // 邮费 此项如果为0，则为包邮，此字段不能为负数，应该对它进行检查，或者设为无符号数
 }
+
+func (c *CustomerOrder) FindAll(filter bson.M, options *options.FindOptions) ([]CustomerOrder, error) {
+	var result []CustomerOrder
+	cur, err := Client.Collection("customer_order").Find(context.TODO(), filter, options)
+	if err != nil {
+		fmt.Println("Can't get customer order list")
+		return nil, err
+	}
+	for cur.Next(context.TODO()) {
+		var res CustomerOrder
+		if err := cur.Decode(&res); err != nil {
+			fmt.Println("Can't decode into customer order")
+			return nil, err
+		}
+		result = append(result, res)
+	}
+	return result, nil
+}
+
+func (c *CustomerOrder) Insert() error {
+	_, err := Client.Collection("customer_order").InsertOne(context.TODO(), c)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+
 
 type CustomerOrderReq struct {
 	BaseReq
@@ -81,11 +117,12 @@ type CustomerOrderProductPrice struct {
 }
 
 type ResponseCustomerOrdersData struct {
-	CustomerOrders []CustomerOrder `json:"customer_orders"`
+	//CustomerOrders []CustomerOrder `json:"customer_orders"`
 	//Products       []Product       `json:"product"`
 	//Customers   []Customer `json:"customer"`
-	Total       int `json:"total"`
-	Pages       int `json:"pages"`
-	Size        int `json:"size"`
-	CurrentPage int `json:"current_page"`
+	Result      interface{} `json:"result"`
+	Total       int64       `json:"total"`
+	Pages       int64       `json:"pages"`
+	Size        int64       `json:"size"`
+	CurrentPage int64       `json:"current_page"`
 }

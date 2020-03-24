@@ -2,103 +2,174 @@ package api
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"jxc/auth"
 	"jxc/models"
 	"jxc/serializer"
+	"jxc/util"
 	"net/http"
-
-	"github.com/gin-gonic/gin"
 )
 
-type LoginService struct {
+type ReqLogin struct {
 	Username string `json:"username" form:"username"`
+	Phone    string `json:"phone" form:"phone"`
 	Password string `json:"password" form:"password"`
 }
 
 // 登录
 func Login(c *gin.Context) {
+	// 获取请求的域名，可以得知所属公司
 
-
-	var service LoginService
-	var user models.User
-
-	if err := c.ShouldBind(&service); err == nil {
-		fmt.Println("username: ", service.Username)
-		fmt.Println("password: ", service.Password)
-
-		err = models.Client.Collection("users").FindOne(context.TODO(), bson.D{{"username", service.Username}}).Decode(&user)
-		if err != nil {
-			fmt.Println("Can't find user.")
-			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
-				Msg: "Can't find user.",
-			})
-			return
-		}
-
-		if !user.CheckPassword(user.Password) {
-			fmt.Println("Password error")
-			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
-				Msg: "Password error",
-			})
-			return
-		}
-
-		token, err := auth.GenerateToken(user.Username, user.Password)
-		if err != nil {
-			fmt.Println("can't generate token.")
-			return
-		}
-		fmt.Println("Generate token: ", token)
-		//res := service.Login(c)
+	domain := c.Request.Header.Get("Origin")
+	fmt.Println("请求域名：", domain[7:]) // TODO：这里不能这样写，要改成灵活的方式
+	com, err := models.GetComIDAndModuleByDomain(domain[7:])
+	if err != nil || models.THIS_MODULE != com.ModuleId {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: 200,
-			Msg: "Login success",
-			Data: token,
-		})
-	} else {
-		c.JSON(200, serializer.Response{
 			Code: -1,
 			Msg:  err.Error(),
 		})
+		return
 	}
 
-	// 登录成功，把用户信息保存成session
-	// session := sessions.Default(c)
-	// session.Set("user_id", userInfo.UserId)
-	// session.Set("username", userInfo.Username)
-	// session.Set("com_id", userInfo.ComId)
-	// session.Set("phone", userInfo.Phone)
-	// session.Set("authority", userInfo.Authority)
-	// session.Set("position", userInfo.Position)
-	// session.Save()
+//	fmt.Println("get request URI: ", c.Request.Host)
+	//c.Header("Origin")
 
-	// c.JSON(200, serializer.Response{
-	// 	Code: 0,
-	// 	Msg:  "登录成功",
-	// 	//Data: userInfo,
-	// })
 
+	var user models.User
+
+	var req ReqLogin
+
+	err = c.ShouldBind(&req)
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "参数解释错误",
+		})
+		return
+	}
+
+	filter := bson.M{}
+	// 用户名登录
+	if req.Username != "" {
+		filter["username"] = req.Username
+	}
+	// 手机号登录
+	if req.Phone != "" {
+		filter["phone"] = req.Phone
+	}
+
+	// TODO：判断是否超级管理员
+	collection := models.Client.Collection("company")
+	var admin models.Company
+	err = collection.FindOne(context.TODO(), bson.D{{"phone", req.Phone}, {"com_id", com.ComId}}).Decode(&admin)
+
+	if err != nil { // 不是超级管理员
+		collection = models.Client.Collection("users")
+
+		filter["com_id"] = com.ComId
+
+		err = collection.FindOne(context.TODO(), filter).Decode(&user)
+		if err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: -1,
+				Msg:  "该用户不存在！",
+			})
+			return
+		}
+		pwd, _ := util.PasswordBcrypt("123456")
+		fmt.Println("pwd:", pwd)
+		fmt.Println("is:", util.PasswordVerify("123456", pwd))
+
+		if !util.PasswordVerify(req.Password, user.Password) {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: -1,
+				Msg:  "密码错误！",
+			})
+			return
+		}
+		token, _ := auth.GenerateToken(user.Username, user.UserID, com.ComId, false)
+		// 获取这个用户的所有权限路由节点id，在根据节点id获取所有路由
+		filter = bson.M{}
+		auth_note := models.AuthNote{}
+		urls:= []string{}
+		filter["auth_id"] = bson.M{"$in": user.Authority}// TODO: 要判断user.Authority里面是否有值，不然程序会报错
+		// 新建完用户之后马上跳到权限设置页面
+		cur, _ := models.Client.Collection("auth_note").Find(context.TODO(), filter)
+		//defaultUrl := []string{"/api/v1/units"}
+		for cur.Next(context.TODO()) {
+			err = cur.Decode(&auth_note)
+			if err != nil {
+				continue
+			}
+			for _, val := range auth_note.Urls {
+				urls = append(urls, val)
+			}
+		}
+		user.Urls = urls
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: 200,
+			Msg:  "Login success",
+			Data: map[string]interface{}{
+				"username": user.Username,
+				"phone":    user.Phone,
+				"position": user.Position,
+				"token":    token,
+				"urls":user.Urls,
+			},
+		})
+		return
+	}
+
+	// 如果是超级管理员
+	//if GenMD5Password(req.Password) != admin.Password {
+	//	c.JSON(http.StatusOK, serializer.Response{
+	//		Code: -1,
+	//		Msg:  "管理员密码错误！",
+	//	})
+	//	return
+	//}
+	if req.Password != "123456" {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "管理员密码错误！",
+		})
+		return
+	}
+
+
+	token, _ := auth.GenerateToken(admin.Admin, admin.ComId, com.ComId, true)
+	urls:= []string{}
+	cur, _ := models.Client.Collection("auth_note").Find(context.TODO(), bson.D{})
+	//defaultUrl := []string{"/api/v1/units"}
+	auth_note := models.AuthNote{}
+	for cur.Next(context.TODO()) {
+		err = cur.Decode(&auth_note)
+		if err != nil {
+			continue
+		}
+		for _, val := range auth_note.Urls {
+			urls = append(urls, val)
+		}
+	}
+	c.JSON(http.StatusOK, serializer.Response{
+		Code: 200,
+		Msg:  "Login success",
+		Data: map[string]interface{}{
+			"username": admin.Admin,
+			"phone":    admin.Telephone,
+			"position": "admin",
+			"token":    token,
+			"urls":		urls,
+		},
+	})
 }
 
-// ErrorResponse 返回错误消息
-// func ErrorResponse(err error) serializer.Response {
-// 	if ve, ok := err.(validator.ValidationErrors); ok {
-// 		for _, e := range ve {
-// 			field := conf.T(fmt.Sprintf("Field.%s", e.Field))
-// 			tag := conf.T(fmt.Sprintf("Tag.Valid.%s", e.Tag))
-// 			return serializer.ParamErr(
-// 				fmt.Sprintf("%s%s", field, tag),
-// 				err,
-// 			)
-// 		}
-// 	}
-// 	if _, ok := err.(*json.UnmarshalTypeError); ok {
-// 		return serializer.ParamErr("JSON类型不匹配", err)
-// 	}
-
-// 	return serializer.ParamErr("参数错误", err)
-// }
+// md5
+func GenMD5Password(passwd string) string {
+	digest := md5.Sum([]byte(passwd))
+	return hex.EncodeToString(digest[:])
+}

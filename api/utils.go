@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"jxc/auth"
 	"jxc/models"
 	"jxc/serializer"
+	"jxc/util"
+	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"time"
@@ -27,27 +32,71 @@ func NotFound(c *gin.Context) {
 
 func UploadImages(c *gin.Context) {
 
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+
 	form, err := c.MultipartForm()
 	if err != nil {
 		c.String(http.StatusBadRequest, fmt.Sprintf("err: %s", err.Error()))
 		return
 	}
 
-	fmt.Println("r.PostForm:     ",c.PostForm)
-
-	fmt.Println("r.MultiPartForm:",c.MultipartForm)
-
-
-	files := form.File["images"]
+	files := form.File["file"]
 	fmt.Println("form files: ", files)
+
+	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//save_path := os.Getenv("UPLOAD_PATH")
+	save_path := dir
+
+	urls := []string{}
+
 
 	for _, file := range files {
 		fmt.Println(file.Filename)
-		c.SaveUploadedFile(file, "src/assets/"+file.Filename)
+		path, filename := util.GetYpyunPath(file.Filename)
+		upload_path := save_path + path
+		fmt.Println("storage path: ", upload_path)
+		_, err = os.Stat(upload_path)
+
+		if os.IsNotExist(err) {
+			fmt.Println("file path err: ", err)
+			err = os.MkdirAll(upload_path, os.ModePerm)
+
+			if err != nil {
+				fmt.Println("create dir err: ", err)
+				panic(err)
+			}
+		}
+		err := c.SaveUploadedFile(file, upload_path + filename)
+		if err != nil {
+			fmt.Println("upload image error: ", err)
+			return
+		}
+		//ypyunURL := "http://img.jxc.weqi.exechina.com/upload/" + strconv.Itoa(int(claims.ComId)) + "/product_img/" + filename
+		//fmt.Println("url: ", ypyunURL)
+
+		ypyunURL1 := "/upload/" + strconv.Itoa(int(claims.ComId)) + "/product_img/" + filename
+
+		err = util.UpYunPut(ypyunURL1, upload_path + filename)
+		if err != nil {
+			fmt.Println("upload to the net failed: ", err)
+			return
+		}
+		ret_url := "http://img.jxc.weqi.exechina.com" + ypyunURL1
+		urls = append(urls, ret_url)
+		//fmt.Println("filename: ", upload_path + filename)
+
 	}
 
-
-	c.String(http.StatusCreated, "upload successful \n")
+	c.JSON(http.StatusOK, serializer.Response{
+		Code: 200,
+		Msg:  "Get supplier instance",
+		Data: urls,
+	})
 }
 
 // 根据请求的域名，确定是哪家公司

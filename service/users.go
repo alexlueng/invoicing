@@ -74,7 +74,52 @@ func FindUser(user_id []int64, com_id int64) (map[int64]models.User, error) {
 		users[user.UserID] = user
 	}
 	return users, nil
+}
 
+// 查找一条用户信息
+func FindOneUser(userId int64, comId int64) (*models.User, error) {
+	var user models.User
+	filter := bson.M{}
+	filter["user_id"] = userId
+	filter["com_id"] = comId
+	collection := models.Client.Collection("users")
+	err := collection.FindOne(context.TODO(), filter).Decode(&user)
+	if err != nil {
+		return nil, err
+	}
+	// 获取这个用户的所有权限路由节点id，在根据节点id获取所有路由
+	filter = bson.M{}
+	auth_note := models.AuthNote{}
+	 urls:= []string{"/api/v1/customer_settlement/getcustomer",
+	 	"/api/v1/customer_settlement/getsettlement",
+	 	"/api/v1/customer_settlement/create",
+		 "/api/v1/customer_settlement/detail",
+		 "/api/v1/customer_settlement/confirm",
+		 "/api/v1/supplier_settlement/list",
+		 "/api/v1/supplier_settlement/getsupplier",
+		 "/api/v1/supplier_settlement/getsettlement",
+		 "/api/v1/supplier_settlement/create",
+		 "/api/v1/supplier_settlement/detail",
+		 "/api/v1/supplier_settlement/confirm",
+	 	 "/upload_images"}
+	filter["auth_id"] = bson.M{"$in": user.Authority}
+	cur, err := models.Client.Collection("auth_note").Find(context.TODO(), filter)
+	if err != nil {
+		// 没有找到对应的数据，返回空
+		return &user,nil
+	}
+	//defaultUrl := []string{"/api/v1/units"}
+	for cur.Next(context.TODO()) {
+		err = cur.Decode(&auth_note)
+		if err != nil {
+			continue
+		}
+		for _, val := range auth_note.Urls {
+			urls = append(urls, val)
+		}
+	}
+	user.Urls = urls
+	return &user, nil
 }
 
 // 更新用户信息

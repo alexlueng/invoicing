@@ -76,3 +76,19 @@ func SubOrderSnFindOneInstance(subOrderSn string, comId int64) (*models.GoodsIns
 	}
 	return &instance, err
 }
+
+// 根据采购子订单id获取实例
+// 来源为供应商 src_type = 2，src_sub_order_id = sub_order_id
+func SubOrderIdFindOneInstance(subOrderId int64,comId int64) (*models.GoodsInstance, error) {
+	collection := models.Client.Collection("goods_instance")
+	var instance models.GoodsInstance
+	filter := bson.M{}
+	filter["com_id"] = comId
+	filter["src_type"] = 2
+	filter["src_sub_order_id"] = subOrderId
+	err := collection.FindOne(context.TODO(), filter).Decode(&instance)
+	if err != nil {
+		return nil, err
+	}
+	return &instance, err
+}

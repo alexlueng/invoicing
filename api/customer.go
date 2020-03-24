@@ -7,12 +7,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"io/ioutil"
+	"jxc/auth"
 	"jxc/models"
 	"jxc/serializer"
 	"net/http"
 	"strconv"
-	"strings"
-
 	//"gopkg.in/go-playground/validator.v9"
 )
 
@@ -23,19 +22,13 @@ const ENABLESAMECUSTOMER = false
 // 默认展示前20条数据，第1页，以升序的方式
 func ListCustomers(c *gin.Context) {
 
-	// 根据域名得到com_id
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+
 
 	var req models.CustReq
 
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -99,7 +92,7 @@ func ListCustomers(c *gin.Context) {
 
 	// 每个查询都要带着com_id去查
 	//com_id, _ := strconv.Atoi(com.ComId)
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 
 	var customers []models.Customer
 	customer :=  models.Customer{}
@@ -131,20 +124,16 @@ func ListCustomers(c *gin.Context) {
 
 // AddCustomer a customer and save into mongodb
 func AddCustomer(c *gin.Context) {
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "Domain error",
-		})
-		return
-	}
+
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	customer := models.Customer{}
 	_ = json.Unmarshal(data, &customer)
 
-	customer.ComID = com.ComId
+	customer.ComID = claims.ComId
 
 
 	//validate := validator.New()
@@ -170,7 +159,7 @@ func AddCustomer(c *gin.Context) {
 	}
 	customer.ID = int64(getLastCustomerID())
 
-	err = customer.Insert()
+	err := customer.Insert()
 	if err != nil {
 		fmt.Println("Error while inserting mongo: ", err)
 		return
@@ -185,21 +174,15 @@ func AddCustomer(c *gin.Context) {
 // UpdateCustomer update an exist record
 func UpdateCustomer(c *gin.Context) {
 
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "Domain error",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
 
 	updateCus := models.Customer{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	_ = json.Unmarshal(data, &updateCus)
 
-	updateCus.ComID = com.ComId
+	updateCus.ComID = claims.ComId
 
 	//应当使用validator 来检验参数是否正确
 
@@ -232,14 +215,9 @@ type DeleteCustomerService struct {
 // DeleteCustomer delete an exist record
 func DeleteCustomer(c *gin.Context) {
 
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	if err != nil || models.THIS_MODULE != com.ModuleId {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "Domain error",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
 
 	var d DeleteCustomerService
 
@@ -247,7 +225,7 @@ func DeleteCustomer(c *gin.Context) {
 	_ = json.Unmarshal(data, &d)
 
 	customer := models.Customer{
-		ComID: com.ComId,
+		ComID: claims.ComId,
 		ID: d.ID,
 	}
 	if err := customer.Delete(); err != nil {

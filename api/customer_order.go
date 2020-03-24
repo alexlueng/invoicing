@@ -6,34 +6,26 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"io/ioutil"
+	"jxc/auth"
 	"jxc/models"
 	"jxc/serializer"
 	"jxc/util"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 )
 
 func AllCustomerOrders(c *gin.Context) {
 
-	//根据域名得到com_id
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
 
-	var orders []models.CustomerOrder
+	//var orders []models.CustomerOrder
+	//orders := make(map[int64]models.CustomerOrder)
 	var req models.CustomerOrderReq
 
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -42,37 +34,38 @@ func AllCustomerOrders(c *gin.Context) {
 		return
 	}
 
-	req.Page, req.Size = SetDefaultPageAndSize(req.Page, req.Size)
+	page, size := SetDefaultPageAndSize(req.Page, req.Size)
 
 	// 设置排序主键
-	orderField := []string{"OrderSN", "price"}
-	exist := false
-	fmt.Println("order field: ", req.OrdF)
-	for _, v := range orderField {
-		if req.OrdF == v {
-			exist = true
-			break
-		}
-	}
-	if !exist {
-		req.OrdF = "OrderSN"
-	}
-	// 设置排序顺序 desc asc
-	order := 1
-	fmt.Println("order: ", req.Ord)
-	if req.Ord == "desc" {
-		order = -1
-		req.Ord = "desc"
-	} else {
-		order = 1
-		req.Ord = "asc"
-	}
-
-	option := options.Find()
-	option.SetLimit(int64(req.Size))
-	option.SetSkip((int64(req.Page) - 1) * int64(req.Size))
-	option.SetSort(bson.D{{req.OrdF, order}})
-
+	orderFields := []string{"OrderSN", "price"}
+	option := SetPaginationAndOrder(req.OrdF, orderFields, req.Ord, page, size)
+/*	//exist := false
+	//fmt.Println("order field: ", req.OrdF)
+	//for _, v := range orderField {
+	//	if req.OrdF == v {
+	//		exist = true
+	//		break
+	//	}
+	//}
+	//if !exist {
+	//	req.OrdF = "OrderSN"
+	//}
+	//// 设置排序顺序 desc asc
+	//order := 1
+	//fmt.Println("order: ", req.Ord)
+	//if req.Ord == "desc" {
+	//	order = -1
+	//	req.Ord = "desc"
+	//} else {
+	//	order = 1
+	//	req.Ord = "asc"
+	//}
+	//
+	//option := options.Find()
+	//option.SetLimit(int64(req.Size))
+	//option.SetSkip((int64(req.Page) - 1) * int64(req.Size))
+	//option.SetSort(bson.D{{req.OrdF, order}})
+*/
 	option.Projection = bson.M{"products": 0}
 	//设置搜索规则
 	filter := bson.M{}
@@ -104,9 +97,7 @@ func AllCustomerOrders(c *gin.Context) {
 	if req.Status != "" {
 		filter["status"] = bson.M{"$regex": req.Status}
 	}
-	//db.getCollection('collection_name').find({"create_time":{"$gte":ISODate("2019-09-30 00:00:00"), "$lt": ISODate("2019-09-30 23:59:59")}})
-	//StartOrderTime time.Time `json:"start_order_time" form:"start_order_time"`
-	//EndOrderTime time.Time `json:"end_order_time" form:"end_order_time"`
+
 	// 根据时间来查找订单的几个条件：
 	// 1.开始、结束时间都传了 2. 只有开始时间，没有结束时间 3. 只有结束时间，没有开始时间
 	if req.StartOrderTime != "" {
@@ -162,57 +153,68 @@ func AllCustomerOrders(c *gin.Context) {
 		}
 	}
 
-	//filter["com_id"] = com.ComId
-	filter["com_id"] = 1
+	filter["com_id"] = claims.ComId
 	fmt.Println("filter: ", filter)
 
 	collection := models.Client.Collection("customer_order")
-	sub_collection := models.Client.Collection("customer_suborder")
 
-	cur, err := collection.Find(context.TODO(), filter, option)
-	if err != nil {
-		fmt.Println("error found finding customer orders: ", err)
-		return
+	orderIDs := []int64{}
+
+	order := models.CustomerOrder{}
+	orders, err := order.FindAll(filter, option)
+
+	//cur, err := collection.Find(context.TODO(), filter, option)
+	//if err != nil {
+	//	fmt.Println("error found finding customer orders: ", err)
+	//	return
+	//}
+	for _, order := range orders {
+		//var result models.CustomerOrder
+		////var products []models.CustomerOrderProductsInfo
+		//err := cur.Decode(&result)
+		//if err != nil {
+		//	fmt.Println("error found decoding customer order: ", err)
+		//	return
+		//}
+		//result.SubOrders = []models.CustomerSubOrder{}
+		//orders = append(orders, result)
+		orderIDs = append(orderIDs, order.OrderId)
+
 	}
+
+	allSubOrders := []models.CustomerSubOrder{}
+	collection = models.Client.Collection("customer_suborder")
+	filter = bson.M{}
+	filter["com_id"] = claims.ComId
+	filter["order_id"] = bson.M{"$in": orderIDs} // TODO: 要判断orderIDs里面是否有值，不然程序会报错
+	cur, err := collection.Find(context.TODO(), filter)
+
 	for cur.Next(context.TODO()) {
-		var result models.CustomerOrder
-		//var products []models.CustomerOrderProductsInfo
-		err := cur.Decode(&result)
-		if err != nil {
-			fmt.Println("error found decoding customer order: ", err)
+		var res models.CustomerSubOrder
+		if err := cur.Decode(&res); err != nil {
+			fmt.Println("Can't decode cus sub order: ", err)
 			return
 		}
-		f := bson.M{}
-		f["com_id"] = 1
-		f["order_sn"] = result.OrderSN
-		sub_cur, err := sub_collection.Find(context.TODO(), f)
-		for sub_cur.Next(context.TODO()) {
-			var res models.CustomerOrderProductsInfo
-			if err := sub_cur.Decode(&res); err != nil {
-				fmt.Println("error found decoding product info: ", err)
-				return
+		allSubOrders = append(allSubOrders, res)
+	}
+	for _, subItem := range allSubOrders {
+		for key, item := range orders {
+			if subItem.OrderId == item.OrderId {
+				orders[key].SubOrders = append(orders[key].SubOrders, subItem)
 			}
-			result.Products = append(result.Products, res)
 		}
-		orders = append(orders, result)
 	}
 
 	//查询的总数
-	var total int64
-	cur, _ = models.Client.Collection("customer_order").Find(context.TODO(),filter)
-	for cur.Next(context.TODO()) {
-		total++
-	}
-
+	total, _ := models.Client.Collection("customer_order").CountDocuments(context.TODO(), bson.D{{"com_id", claims.ComId}})
 
 	// 返回查询到的总数，总页数
 	resData := models.ResponseCustomerOrdersData{}
-	resData.CustomerOrders = orders
-	//	total, _ = models.Client.Collection("customer").CountDocuments(context.Background(), bson.D{})
-	resData.Total = int(total)
-	resData.Pages = int(total)/int(req.Size) + 1
-	resData.Size = int(req.Size)
-	resData.CurrentPage = int(req.Page)
+	resData.Result = orders
+	resData.Total = total
+	resData.Pages = total/size + 1
+	resData.Size = size
+	resData.CurrentPage = page
 
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
@@ -232,21 +234,13 @@ func AddCustomerOrder(c *gin.Context) {
 	// 6. 算出总价
 	// 7. 组合好前端需要的数据并返回
 
-	//根据域名得到com_id
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
 
 	order := models.CustomerOrder{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	fmt.Println("Get customer_order data: ", string(data))
-	err = json.Unmarshal(data, &order)
+	err := json.Unmarshal(data, &order)
 	if err != nil {
 		fmt.Println("unmarshall error: ", err)
 	}
@@ -274,9 +268,7 @@ func AddCustomerOrder(c *gin.Context) {
 	//这里需要一个订单号生成方法，日期加上6位数的编号,这个订单编号应该是全局唯一的
 	order.OrderSN = GetTempOrderSN()
 	order.OrderId = getLastID("customer_order")
-	//order.ComID = com.ComId
-
-	order.ComID = 1
+	order.ComID = claims.ComId
 
 	// 创建订单的时间，以int64的类型插入到mongodb
 	// TODO: 把这个方法独立出来
@@ -287,23 +279,24 @@ func AddCustomerOrder(c *gin.Context) {
 	//设置订单状态
 	order.Status = models.TOBECONFIRMED
 
-	SmartPrint(order)
+	err = order.Insert()
 
-
-	collection := models.Client.Collection("customer_order")
-	insertResult, err := collection.InsertOne(context.TODO(), order)
+	//collection := models.Client.Collection("customer_order")
+	//insertResult, err := collection.InsertOne(context.TODO(), order)
 	if err != nil {
 		fmt.Println("Error while inserting mongo: ", err)
 		return
 	}
-	fmt.Println("Inserted a single document: ", insertResult.InsertedID)
+	//fmt.Println("Inserted a single document: ", insertResult.InsertedID)
 
-	collection = models.Client.Collection("customer_suborder")
+	var subOrders []models.CustomerSubOrder
+
+	collection := models.Client.Collection("customer_suborder")
 	// 把订单中的每个子项插入到客户订单实例表中
 	for _, item := range order.Products {
 		var result models.CustomerSubOrder
 		//result.ComID = com.ComId
-		result.ComID = 1
+		result.ComID = claims.ComId
 
 		subSn_str, _ := util.GetOrderSN(result.ComID)
 		//fmt.Println("get subID_str: ", subSn_str)
@@ -313,6 +306,7 @@ func AddCustomerOrder(c *gin.Context) {
 		result.OrderId = order.OrderId
 
 		result.CustomerID = order.CustomerID
+		result.CustomerName = order.CustomerName
 		result.OrderSN = order.OrderSN
 		result.Product = item.Product
 		result.Amount = item.Quantity
@@ -328,11 +322,17 @@ func AddCustomerOrder(c *gin.Context) {
 			fmt.Println("Error while inserting mongo: ", err)
 			return
 		}
+		subOrders = append(subOrders, result)
 	}
+
+	responseData := make(map[string]interface{})
+	responseData["order"] = order
+	responseData["sub_orders"] = subOrders
 
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Msg:  "Customer order create succeeded",
+		Data: responseData,
 	})
 }
 
@@ -460,26 +460,20 @@ func CustomerPrice(c *gin.Context) {
 
 func UpdateCustomerOrder(c *gin.Context) {
 	// 根据域名得到com_id
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
 
 	updateCustomerOrder := models.CustomerOrder{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
-	err = json.Unmarshal(data, &updateCustomerOrder)
+	err := json.Unmarshal(data, &updateCustomerOrder)
 	if err != nil {
 		fmt.Println("unmarshall error: ", err)
 	}
 	collection := models.Client.Collection("customer_order")
 
 	filter := bson.M{}
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 	filter["order_sn"] = updateCustomerOrder.OrderSN
 	// 更新记录
 	result, err := collection.UpdateOne(context.TODO(), filter, bson.M{
@@ -514,21 +508,16 @@ type GetCustomerOrderSNService struct {
 
 func DeleteCustomerOrder(c *gin.Context) {
 	// 根据域名得到com_id
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 	order_sn := GetCustomerOrderSNService{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	_ = json.Unmarshal(data, &order_sn)
 
 	filter := bson.M{}
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 	filter["order_sn"] = order_sn.OrderSN
 
 	collection := models.Client.Collection("customer_order")
@@ -556,26 +545,21 @@ type OrderDetail struct {
 func CustomerOrderDetail(c *gin.Context) {
 
 	// 根据域名得到com_id
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 	order := models.CustomerOrder{}
 	order_sn := GetCustomerOrderSNService{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
-	err = json.Unmarshal(data, &order_sn)
+	err := json.Unmarshal(data, &order_sn)
 	if err != nil {
 		fmt.Println("error found: ", err)
 	}
 
 	filter := bson.M{}
 	//filter["com_id"] = com.ComId
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 	filter["order_sn"] = order_sn.OrderSN
 
 	collection := models.Client.Collection("customer_order")
@@ -592,6 +576,10 @@ func CustomerOrderDetail(c *gin.Context) {
 	var suborders []models.CustomerSubOrder
 	collection = models.Client.Collection("customer_suborder")
 	cur, err := collection.Find(context.TODO(), filter)
+	if err != nil {
+		fmt.Println("Can't not find customer suborder: ", err)
+		return
+	}
 	for cur.Next(context.TODO()) {
 		var res models.CustomerSubOrder
 		if err := cur.Decode(&res); err != nil {

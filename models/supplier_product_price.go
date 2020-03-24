@@ -15,8 +15,11 @@ type SupplierProductPrice struct {
 type SupplierProductPriceReq struct {
 	BaseReq
 
+
 	Product string `json:"product"`
 	SupplierName string `json:"supplier_name"`
+	ProductID int64 `json:"product_id"`
+	SupplierID int64 `json:"supplier_id"`
 }
 
 type ResponseSupplierProductPriceData struct {

@@ -5,26 +5,31 @@ import (
 	"time"
 )
 
-
-var jwtSecret = []byte("hello")
+// 这是加密秘钥
+var jwtSecret = []byte("2020jxc")
 
 type Claims struct {
 	Username string `json:"username"`
-	Password string `json:"password"`
+	UserId   int64  `json:"user_id"`
+	ComId    int64  `json:"com_id"`
+	Admin    bool   `json:"admin"`
 	jwt.StandardClaims
 }
 
 // 利用时间戳生成token
-func GenerateToken(username, password string) (string, error) {
+func GenerateToken(username string, userId int64, comId int64, admin bool) (string, error) {
 	nowTime := time.Now()
 	expireTime := nowTime.Add(3 * time.Hour)
 
 	claims := Claims{
 		username,
-		password,
+		userId,
+		comId,
+		admin,
 		jwt.StandardClaims{
+			Subject:   "",
 			ExpiresAt: expireTime.Unix(),
-			Issuer: "jxc",
+			Issuer:    "jxc",
 		},
 	}
 	tokenClaims := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -33,7 +38,7 @@ func GenerateToken(username, password string) (string, error) {
 }
 
 func ParseToken(token string) (*Claims, error) {
-	tokenClaims, err := jwt.ParseWithClaims(token, &Claims{}, func(token *jwt.Token)(interface{}, error) {
+	tokenClaims, err := jwt.ParseWithClaims(token, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return jwtSecret, nil
 	})
 	if tokenClaims != nil {

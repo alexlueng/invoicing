@@ -1,15 +1,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"io/ioutil"
+	"jxc/auth"
 	"jxc/models"
 	"jxc/serializer"
 	"net/http"
-	"strings"
 )
 //允许同名的供应商
 const ENABLESAMESUPPLIER = false
@@ -17,19 +18,13 @@ const ENABLESAMESUPPLIER = false
 
 func ListSuppliers(c *gin.Context) {
 	// 根据域名得到com_id
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "域名错误",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
 
 	var req models.SupplierReq
 
-	err = c.ShouldBind(&req)
+	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -81,7 +76,7 @@ func ListSuppliers(c *gin.Context) {
 	}
 
 	// 每个查询都要带着com_id
-	filter["com_id"] = com.ComId
+	filter["com_id"] = claims.ComId
 
 	// all conditions are set then start searching
 	var suppliers []models.Supplier
@@ -111,21 +106,16 @@ func ListSuppliers(c *gin.Context) {
 	})
 }
 func AddSuppliers(c *gin.Context) {
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "Domain error",
-		})
-		return
-	}
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	supplier := models.Supplier{}
 
 	_ = json.Unmarshal(data, &supplier)
 
-	supplier.ComID = com.ComId
+	supplier.ComID = claims.ComId
 
 	//collection := models.Client.Collection("supplier")
 	//result := models.Supplier{}
@@ -139,8 +129,9 @@ func AddSuppliers(c *gin.Context) {
 		}
 	}
 	supplier.ID = int64(getLastID("supplier"))
+	supplier.SupplyList = []int64{}
 
-	err = supplier.Insert()
+	err := supplier.Insert()
 
 	if err != nil {
 		fmt.Println("Error while inserting mongo: ", err)
@@ -151,22 +142,20 @@ func AddSuppliers(c *gin.Context) {
 		Msg:  "Supplier create succeeded",
 	})
 }
+
+
 func UpdateSuppliers(c *gin.Context) {
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "Domain error",
-		})
-		return
-	}
+	// 根据域名得到com_id
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 
 	updateSupplier := models.Supplier{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	_ = json.Unmarshal(data, &updateSupplier)
 
-	updateSupplier.ComID = com.ComId
+	updateSupplier.ComID = claims.ComId
 
 	// 更新的条件：更改的时候如果有同名的记录，则要判断是否有与要修改的记录的supplier_id相等,如果有不相等的，则返回
 	// 如果只有相等的supplier_id, 则允许修改
@@ -186,6 +175,21 @@ func UpdateSuppliers(c *gin.Context) {
 		return
 	}
 
+	collection := models.Client.Collection("supplier_product_price")
+	filter := bson.M{}
+	filter["com_id"] = claims.ComId
+	filter["supplier_id"] = updateSupplier.ID
+	filter["is_valid"] = true
+
+	updateResult, err := collection.UpdateMany(context.TODO(), filter, bson.M{
+		"$set": bson.M{
+			"supplier": updateSupplier.SupplierName,}})
+	if err != nil {
+		fmt.Println("Update result: ", updateResult.UpsertedID)
+	}
+
+	fmt.Println("Update results: ", updateResult.UpsertedID)
+
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Msg:  "Supplier update succeeded",
@@ -198,14 +202,11 @@ type DeleteSupplierService struct {
 
 func DeleteSuppliers(c *gin.Context) {
 
-	com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	if ( (err != nil) || (models.THIS_MODULE != com.ModuleId) ){
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "Domain error",
-		})
-		return
-	}
+	// 根据域名得到com_id
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+	fmt.Println("ComID: ", claims.ComId)
+
 
 	var d DeleteSupplierService
 
@@ -213,7 +214,7 @@ func DeleteSuppliers(c *gin.Context) {
 	_ = json.Unmarshal(data, &d)
 
 	supplier := models.Supplier{
-		ComID: com.ComId,
+		ComID: claims.ComId,
 		ID: d.ID,
 	}
 	if err := supplier.Delete(); err != nil {

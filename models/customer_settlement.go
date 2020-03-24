@@ -6,16 +6,9 @@ type CustomerSettlement struct {
 	SettlementSN string `json:"settlement_sn" bson:"settlement_sn"` //结算单号
 	ComID        int64  `json:"com_id" bson:"com_id"`               // 公司id
 
-	//	InstanceId int64 `json:"instance_id" bson:"instance_id"` // 商品实例表中的单号
-	//ChildOrderSN string `json:"child_order_sb"`
-	//OrderSN string `json:"order_sn" bson:"order_sn"` // 订单号
-	//SalesOrderSn  string  `json:"sales_order_sn" bson:"sales_order_sn"` // 销售单号
-	//	WarehouseID int64 `json:"warehouse_id" bson:"warehouse_id"` // 仓库id
-	//SupplierID    int64   `json:"supplier_id" bson:"supplier_id"`       // 供应商id
+	CustomerInstance []int64 `json:"cus_instance" bson:"cus_instance"` // 包含的子项 存放商品实例的id
 
-	CustomerInstance []GoodsInstance `json:"cus_instance" bson:"cus_instance"` // 包含的子项
-
-	CustomerName string `json："customer_name" bson:"customer_name"`
+	CustomerName string `json:"customer_name" bson:"customer_name"`
 	CustomerID   int64  `json:"customer_id" bson:"customer_id"`
 	//	ProductID     int64   `json:"product_id" bson:"product_id"`
 	//	Product       string  `json:"product" bson:"product"`               // 商品名称
@@ -53,11 +46,9 @@ type CustomerSettlementReq struct {
 }
 
 type ResponseCustomerSettlementData struct {
-	//CustomerOrderInstance []OrderInstance `json:"customer_order_instance"`
-	//Products       []Product       `json:"product"`
-	//Customers   []Customer `json:"customer"`
-	Total       int `json:"total"`
-	Pages       int `json:"pages"`
-	Size        int `json:"size"`
-	CurrentPage int `json:"current_page"`
+	Result      interface{} `json:"result"`
+	Total       int         `json:"total"`
+	Pages       int         `json:"pages"`
+	Size        int         `json:"size"`
+	CurrentPage int         `json:"current_page"`
 }

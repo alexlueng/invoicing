@@ -70,6 +70,11 @@ type GoodsInstance struct {
 
 	Units string `json:"units" bson:"units"` // 计量单位
 
-	SettlementOrderSN string `json:"settlement_order_sn" bson:"settlement_order_sn"` // 结算单号
-	Settlement        int64  `json:"settlement"`                                     // 是否结算
+	CusSettleOrderSN string `json:"cussettle_order_sn" bson:"cussettle_order_sn"` // 结算单号
+	CusSettleOrderId int64 `json:"cussettle_order_id" bson:"cussettle_order_id"`
+	CusSettle       int64  `json:"cussettle" bson:"cussettle"`                                     // 是否结算
+	// 结算状态：0，未结算 1，结算中 2，已结算
+	SupSettleOrderSN string `json:"supsettle_order_sn" bson:"supsettle_order_sn"` // 结算单号
+	SupSettleOrderId int64 `json:"supsettle_order_id" bson:"supsettle_order_id"`
+	SupSettle        int64  `json:"supsettle" bson:"supsettle"`                                     // 是否结算
 }

@@ -3,6 +3,7 @@ package util
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"golang.org/x/crypto/bcrypt"
 	"io/ioutil"
 	"math"
@@ -76,6 +77,7 @@ func GetTableId(table string) (int64, error) {
 		"table": table,
 	}
 	// 如果读取不到配置则返回提示信息
+	fmt.Println("weqi_id url: ", os.Getenv("GET_TABLE_ID"))
 	url := os.Getenv("GET_TABLE_ID")
 	if url == "" {
 		return 0, errors.New("获取id失败")

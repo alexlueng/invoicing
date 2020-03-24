@@ -98,20 +98,20 @@ func GetYpyunSign(path, file_hash, file_size string) map[string]string {
 	return map[string]string{"signature": signature, "policy": policy}
 }
 
-// 生成上传又拍云路径 product_img/日期/时间戳+4位随机码.后缀名
-func GetYpyunPath(fileName string) string {
+// 生成上传又拍云路径 upload/com_id/product_img/日期/时间戳+4位随机码.后缀名
+func GetYpyunPath(fileName string) (string, string) {
 
-	up := upyun.NewUpYun(&upyun.UpYunConfig{
-		Bucket:   "demo",
-		Operator: "op",
-		Password: "password",
-	})
+	//up := upyun.NewUpYun(&upyun.UpYunConfig{
+	//	Bucket:   "demo",
+	//	Operator: "op",
+	//	Password: "password",
+	//})
 
 	// 上传文件
-	fmt.Println(up.Put(&upyun.PutObjectConfig{
-		Path:      "/demo.log",
-		LocalPath: "/tmp/upload",
-	}))
+	//fmt.Println(up.Put(&upyun.PutObjectConfig{
+	//	Path:      "/demo.log",
+	//	LocalPath: "/tmp/upload",
+	//}))
 
 	fileType := strings.Split(fileName, ".")
 	currentDate := time.Now().Format("20060102")
@@ -121,8 +121,13 @@ func GetYpyunPath(fileName string) string {
 		n, _ := rand.Int(rand.Reader, big.NewInt(100))
 		randStr += strconv.FormatInt(n.Int64(), 10)
 	}
-	path := "product_img/" + currentDate + "/" + timeStr + randStr + "." + fileType[1]
-	return path
+	// windows
+	//path := "\\product_img\\" + currentDate + "\\"
+	// linux
+	path := "/product_img/" + currentDate + "/"
+
+	filename :=  timeStr + randStr + "." + fileType[1]
+	return path, filename
 }
 
 func NewUpYun() *upyun.UpYun {
@@ -139,10 +144,17 @@ func NewUpYun() *upyun.UpYun {
 
 // 又拍云上传
 func UpYunPut(path, localPath string) error {
+
+	fmt.Println("path: ", path)
+	fmt.Println("local path: ", localPath)
+
+
 	up := NewUpYun()
 	err := up.Put(&upyun.PutObjectConfig{
-		Path:      "/demo.log",
-		LocalPath: "/tmp/upload",
+		//Path:      "/demo.log",
+		//LocalPath: "/tmp/upload",
+		Path:      path,
+		LocalPath: localPath,
 	})
 	return err
 }

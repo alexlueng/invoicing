@@ -18,7 +18,9 @@ type Supplier struct {
 	Payment string `json:"payment" bson:"payment"`
 	// due string
 	Level int64 `json:"level" bson:"level"` // 应该有一个默认级别，然后有一个机制会提升这个级别
-	supplyList []int64 `json:"supply_list" bson:"supply_list"` // 此供应商供应的商品列表
+	SupplyList []int64 `json:"supply_list" bson:"supply_list"` // 此供应商供应的商品列表
+
+	LastSettlement int64 `json:"last_settlement" bson:"last_settlement"`
 }
 
 
@@ -123,6 +125,18 @@ func (c Supplier) Update() error {
 	return nil
 }
 
+func (c *Supplier) FindByID(id int64) (*Supplier, error) {
+	filter := bson.M{}
+	filter["com_id"] = c.ComID
+	filter["supplier_id"] = id
+	collection := Client.Collection("supplier")
+	err := collection.FindOne(context.TODO(), filter).Decode(c)
+	if err != nil {
+		fmt.Println("inner error: ", err)
+		return nil, err
+	}
+	return c, nil
+}
 
 
 
