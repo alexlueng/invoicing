@@ -28,3 +28,12 @@ func GetComIDAndModuleID() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+func GetComID() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := c.GetHeader("Access-Token")
+		claims, _ := auth.ParseToken(token)
+		c.Set("claims", claims)
+		c.Next()
+	}
+}

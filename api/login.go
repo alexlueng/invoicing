@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"jxc/auth"
@@ -25,9 +24,8 @@ func Login(c *gin.Context) {
 	// 获取请求的域名，可以得知所属公司
 
 	domain := c.Request.Header.Get("Origin")
-	fmt.Println("请求域名：", domain[7:]) // TODO：这里不能这样写，要改成灵活的方式
-	com, err := models.GetComIDAndModuleByDomain(domain[7:])
-	if err != nil || models.THIS_MODULE != com.ModuleId {
+	com, err := models.GetComIDAndModuleByDomain(domain[len("http://"):])
+		if err != nil || models.THIS_MODULE != com.ModuleId {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
 			Msg:  err.Error(),
@@ -35,12 +33,7 @@ func Login(c *gin.Context) {
 		return
 	}
 
-//	fmt.Println("get request URI: ", c.Request.Host)
-	//c.Header("Origin")
-
-
 	var user models.User
-
 	var req ReqLogin
 
 	err = c.ShouldBind(&req)
@@ -80,9 +73,7 @@ func Login(c *gin.Context) {
 			})
 			return
 		}
-		pwd, _ := util.PasswordBcrypt("123456")
-		fmt.Println("pwd:", pwd)
-		fmt.Println("is:", util.PasswordVerify("123456", pwd))
+		//pwd, _ := util.PasswordBcrypt("123456")
 
 		if !util.PasswordVerify(req.Password, user.Password) {
 			c.JSON(http.StatusOK, serializer.Response{
@@ -95,8 +86,8 @@ func Login(c *gin.Context) {
 		// 获取这个用户的所有权限路由节点id，在根据节点id获取所有路由
 		filter = bson.M{}
 		auth_note := models.AuthNote{}
-		urls:= []string{}
-		filter["auth_id"] = bson.M{"$in": user.Authority}// TODO: 要判断user.Authority里面是否有值，不然程序会报错
+		urls := []string{}
+		filter["auth_id"] = bson.M{"$in": user.Authority} // TODO: 要判断user.Authority里面是否有值，不然程序会报错
 		// 新建完用户之后马上跳到权限设置页面
 		cur, _ := models.Client.Collection("auth_note").Find(context.TODO(), filter)
 		//defaultUrl := []string{"/api/v1/units"}
@@ -118,21 +109,14 @@ func Login(c *gin.Context) {
 				"phone":    user.Phone,
 				"position": user.Position,
 				"token":    token,
-				"urls":user.Urls,
+				"urls":     user.Urls,
 			},
 		})
 		return
 	}
 
 	// 如果是超级管理员
-	//if GenMD5Password(req.Password) != admin.Password {
-	//	c.JSON(http.StatusOK, serializer.Response{
-	//		Code: -1,
-	//		Msg:  "管理员密码错误！",
-	//	})
-	//	return
-	//}
-	if req.Password != "123456" {
+	if GenMD5Password(req.Password) != admin.Password {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
 			Msg:  "管理员密码错误！",
@@ -140,9 +124,8 @@ func Login(c *gin.Context) {
 		return
 	}
 
-
 	token, _ := auth.GenerateToken(admin.Admin, admin.ComId, com.ComId, true)
-	urls:= []string{}
+	urls := []string{}
 	cur, _ := models.Client.Collection("auth_note").Find(context.TODO(), bson.D{})
 	//defaultUrl := []string{"/api/v1/units"}
 	auth_note := models.AuthNote{}
@@ -163,7 +146,7 @@ func Login(c *gin.Context) {
 			"phone":    admin.Telephone,
 			"position": "admin",
 			"token":    token,
-			"urls":		urls,
+			"urls":     urls,
 		},
 	})
 }

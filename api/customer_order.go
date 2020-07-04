@@ -12,17 +12,15 @@ import (
 	"jxc/serializer"
 	"jxc/util"
 	"net/http"
-	"strconv"
 	"time"
 )
 
+// 所有客户订单
 func AllCustomerOrders(c *gin.Context) {
 
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	//var orders []models.CustomerOrder
-	//orders := make(map[int64]models.CustomerOrder)
 	var req models.CustomerOrderReq
 
 	err := c.ShouldBind(&req)
@@ -37,124 +35,12 @@ func AllCustomerOrders(c *gin.Context) {
 	page, size := SetDefaultPageAndSize(req.Page, req.Size)
 
 	// 设置排序主键
-	orderFields := []string{"OrderSN", "price"}
-	option := SetPaginationAndOrder(req.OrdF, orderFields, req.Ord, page, size)
-/*	//exist := false
-	//fmt.Println("order field: ", req.OrdF)
-	//for _, v := range orderField {
-	//	if req.OrdF == v {
-	//		exist = true
-	//		break
-	//	}
-	//}
-	//if !exist {
-	//	req.OrdF = "OrderSN"
-	//}
-	//// 设置排序顺序 desc asc
-	//order := 1
-	//fmt.Println("order: ", req.Ord)
-	//if req.Ord == "desc" {
-	//	order = -1
-	//	req.Ord = "desc"
-	//} else {
-	//	order = 1
-	//	req.Ord = "asc"
-	//}
-	//
-	//option := options.Find()
-	//option.SetLimit(int64(req.Size))
-	//option.SetSkip((int64(req.Page) - 1) * int64(req.Size))
-	//option.SetSort(bson.D{{req.OrdF, order}})
-*/
+	orderFields := []string{"OrderSN", "price", "order_id"}
+	option := SetPaginationAndOrder("order_id", orderFields, req.Ord, page, size)
+
 	option.Projection = bson.M{"products": 0}
 	//设置搜索规则
-	filter := bson.M{}
-	//OrderSN string `json:"order_sn" form:"order_sn"`
-	if req.OrderSN != "" {
-		filter["order_sn"] = bson.M{"$regex": req.OrderSN}
-	}
-	//CustomerName      string `json:"customer_name" form:"customer_name"` //模糊搜索
-	if req.CustomerName != "" {
-		filter["customer_name"] = bson.M{"$regex": req.CustomerName}
-	}
-	//Contacts string `json:"contacts" form:"contacts"` //模糊搜索
-	if req.Contacts != "" {
-		filter["contacts"] = bson.M{"$regex": req.Contacts}
-	}
-	//Receiver string `json:"receiver" form:"receiver"` //模糊搜索
-	if req.Receiver != "" {
-		filter["receiver"] = bson.M{"$regex": req.Receiver}
-	}
-	//Delivery string `json:"delivery" form:"delivery"`
-	if req.Delivery != "" {
-		filter["delivery"] = bson.M{"$regex": req.Delivery}
-	}
-	//ExtraAmount float64 `json:"extra_amount" form:"extra_amount"`
-	if req.ExtraAmount != 0.0 {
-		filter["extra_amount"] = bson.M{"$eq": req.ExtraAmount}
-	}
-	//Status string `json:"status" form:"status"`
-	if req.Status != "" {
-		filter["status"] = bson.M{"$regex": req.Status}
-	}
-
-	// 根据时间来查找订单的几个条件：
-	// 1.开始、结束时间都传了 2. 只有开始时间，没有结束时间 3. 只有结束时间，没有开始时间
-	if req.StartOrderTime != "" {
-		stime, _ := strconv.Atoi(req.StartOrderTime)
-		startOrderTime := int64(stime)
-		if req.EndOrderTime != "" {
-			stime, _ := strconv.Atoi(req.StartOrderTime)
-			endOrderTime := int64(stime)
-			filter["order_time"] = bson.M{"$gte": startOrderTime, "$lte": endOrderTime}
-		} else {
-			filter["order_time"] = bson.M{"$gte": startOrderTime}
-		}
-	} else {
-		if req.EndOrderTime != "" {
-			current_time := time.Now()
-			filter["order_time"] = bson.M{"$lte": current_time.UTC().UnixNano()}
-		}
-	}
-	//StartPayTime time.Time `json:"start_pay_time" form:"start_pay_time"`
-	//EndPayTime time.Time `json:"end_pay_time" form:"end_pay_time"`
-	if req.StartPayTime != "" {
-		stime, _ := strconv.Atoi(req.StartPayTime)
-		startPayTime := int64(stime)
-		if req.EndPayTime != "" {
-			stime, _ := strconv.Atoi(req.StartPayTime)
-			endOrderTime := int64(stime)
-			filter["pay_time"] = bson.M{"$gte": startPayTime, "$lte": endOrderTime}
-		} else {
-			filter["pay_time"] = bson.M{"$gte": startPayTime}
-		}
-	} else {
-		if req.EndPayTime != "" {
-			current_time := time.Now()
-			filter["pay_time"] = bson.M{"$lte": current_time.UTC().UnixNano()}
-		}
-	}
-	//StartShipTime time.Time `json:"start_ship_time" form:"start_ship_time"`
-	//EndShipTime time.Time `json:"end_ship_time" form:"end_ship_time"`
-	if req.StartShipTime != "" {
-		stime, _ := strconv.Atoi(req.StartShipTime)
-		startShipTime := int64(stime)
-		if req.EndPayTime != "" {
-			stime, _ := strconv.Atoi(req.StartShipTime)
-			endShipTime := int64(stime)
-			filter["ship_time"] = bson.M{"$gte": startShipTime, "$lte": endShipTime}
-		} else {
-			filter["ship_time"] = bson.M{"$gte": startShipTime}
-		}
-	} else {
-		if req.EndPayTime != "" {
-			current_time := time.Now()
-			filter["ship_time"] = bson.M{"$lte": current_time.UTC().UnixNano()}
-		}
-	}
-
-	filter["com_id"] = claims.ComId
-	fmt.Println("filter: ", filter)
+	filter := models.GetCustomerOrderParam(req, claims.ComId)
 
 	collection := models.Client.Collection("customer_order")
 
@@ -163,36 +49,33 @@ func AllCustomerOrders(c *gin.Context) {
 	order := models.CustomerOrder{}
 	orders, err := order.FindAll(filter, option)
 
-	//cur, err := collection.Find(context.TODO(), filter, option)
-	//if err != nil {
-	//	fmt.Println("error found finding customer orders: ", err)
-	//	return
-	//}
 	for _, order := range orders {
-		//var result models.CustomerOrder
-		////var products []models.CustomerOrderProductsInfo
-		//err := cur.Decode(&result)
-		//if err != nil {
-		//	fmt.Println("error found decoding customer order: ", err)
-		//	return
-		//}
-		//result.SubOrders = []models.CustomerSubOrder{}
-		//orders = append(orders, result)
 		orderIDs = append(orderIDs, order.OrderId)
-
 	}
 
 	allSubOrders := []models.CustomerSubOrder{}
 	collection = models.Client.Collection("customer_suborder")
-	filter = bson.M{}
-	filter["com_id"] = claims.ComId
-	filter["order_id"] = bson.M{"$in": orderIDs} // TODO: 要判断orderIDs里面是否有值，不然程序会报错
-	cur, err := collection.Find(context.TODO(), filter)
+	subOrderFilter := bson.M{}
+	subOrderFilter["com_id"] = claims.ComId
+	if len(orderIDs) > 0 {
+		subOrderFilter["order_id"] = bson.M{"$in": orderIDs} // TODO: 要判断orderIDs里面是否有值，不然程序会报错
+	}
+	cur, err := collection.Find(context.TODO(), subOrderFilter)
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  err.Error(),
+		})
+		return
+	}
 
 	for cur.Next(context.TODO()) {
 		var res models.CustomerSubOrder
 		if err := cur.Decode(&res); err != nil {
-			fmt.Println("Can't decode cus sub order: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  err.Error(),
+			})
 			return
 		}
 		allSubOrders = append(allSubOrders, res)
@@ -206,7 +89,7 @@ func AllCustomerOrders(c *gin.Context) {
 	}
 
 	//查询的总数
-	total, _ := models.Client.Collection("customer_order").CountDocuments(context.TODO(), bson.D{{"com_id", claims.ComId}})
+	total, _ := models.Client.Collection("customer_order").CountDocuments(context.TODO(), filter)
 
 	// 返回查询到的总数，总页数
 	resData := models.ResponseCustomerOrdersData{}
@@ -223,47 +106,38 @@ func AllCustomerOrders(c *gin.Context) {
 	})
 }
 
+// 生成订单的流程：
+// 1. 获取选择的商品列表，数量
+// 2. 获取选择的客户
+// 3. 获取商品的单价
+// 4. 检查包邮字段是否有值，如果有，则获取相应的值
+// 5. 订单状态设置为待确认，下单时间设置为当前时间，
+// 6. 算出总价
+// 7. 组合好前端需要的数据并返回
 func AddCustomerOrder(c *gin.Context) {
-
-	// 生成订单的流程：
-	// 1. 获取选择的商品列表，数量
-	// 2. 获取选择的客户
-	// 3. 获取商品的单价
-	// 4. 检查包邮字段是否有值，如果有，则获取相应的值
-	// 5. 订单状态设置为待确认，下单时间设置为当前时间，
-	// 6. 算出总价
-	// 7. 组合好前端需要的数据并返回
 
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
 	order := models.CustomerOrder{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
-	fmt.Println("Get customer_order data: ", string(data))
 	err := json.Unmarshal(data, &order)
 	if err != nil {
-		fmt.Println("unmarshall error: ", err)
-	}
-
-	// 计算订单总价并与前端传过来的值做对比，如果不相等，则下单失败
-	var checkPrice float64
-	var totalAmount int64
-	for _, product := range order.Products {
-		checkPrice += product.Price * float64(product.Quantity)
-		totalAmount +=product.Quantity
-	}
-	checkPrice += order.TransportationExpense
-	fmt.Println("Counting price: ", checkPrice)
-	if checkPrice != order.TotalPrice {
-		fmt.Println("the price that posted does not match.")
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
-			Msg:  "订单价格错误",
+			Msg:  "创建订单失败",
 		})
 		return
 	}
+
+	// TODO: 需要解决浮点数与整数相乘精度丢失的问题
+
+	var totalAmount int64
+	for _, product := range order.Products {
+		totalAmount += product.Quantity
+	}
+
 	order.Amount = totalAmount
-	fmt.Printf("count amount: %d, order amount: %d\n", totalAmount, order.Amount)
 
 	//这里需要一个订单号生成方法，日期加上6位数的编号,这个订单编号应该是全局唯一的
 	order.OrderSN = GetTempOrderSN()
@@ -271,38 +145,41 @@ func AddCustomerOrder(c *gin.Context) {
 	order.ComID = claims.ComId
 
 	// 创建订单的时间，以int64的类型插入到mongodb
-	// TODO: 把这个方法独立出来
 	current_time := time.Now()
 	order.OrderTime = current_time.Unix()
-	fmt.Println("order_time: ", order.OrderTime)
 
 	//设置订单状态
 	order.Status = models.TOBECONFIRMED
+	order.IsPrepare = false // 备货状态
 
 	err = order.Insert()
 
-	//collection := models.Client.Collection("customer_order")
-	//insertResult, err := collection.InsertOne(context.TODO(), order)
 	if err != nil {
-		fmt.Println("Error while inserting mongo: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "创建订单失败",
+		})
 		return
 	}
-	//fmt.Println("Inserted a single document: ", insertResult.InsertedID)
-
-	var subOrders []models.CustomerSubOrder
+	err = setLastID("customer_order")
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "创建订单失败",
+		})
+		return
+	}
+	var subOrders []interface{}
 
 	collection := models.Client.Collection("customer_suborder")
 	// 把订单中的每个子项插入到客户订单实例表中
 	for _, item := range order.Products {
 		var result models.CustomerSubOrder
-		//result.ComID = com.ComId
 		result.ComID = claims.ComId
 
 		subSn_str, _ := util.GetOrderSN(result.ComID)
-		//fmt.Println("get subID_str: ", subSn_str)
 		result.SubOrderId =getLastID("sub_order")
 		result.SubOrderSn = subSn_str
-		//fmt.Println("get subID: ", subId)
 		result.OrderId = order.OrderId
 
 		result.CustomerID = order.CustomerID
@@ -316,13 +193,34 @@ func AddCustomerOrder(c *gin.Context) {
 		result.ReceiverPhone = order.Phone
 		result.OrderTime = order.OrderTime
 		result.Status = order.Status
+		result.IsPrepare = false // 备货未完成
 
-		_, err = collection.InsertOne(context.TODO(), result)
+		subOrders = append(subOrders, result)
+		setLastID("sub_order")
+	}
+
+	_, err = collection.InsertMany(context.TODO(), subOrders)
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "创建订单失败",
+		})
+		return
+	}
+
+	// 修改商品的出售数量
+	collection = models.Client.Collection("product")
+	for _, item := range order.Products {
+		_, err := collection.UpdateOne(context.TODO(),
+			bson.D{{"com_id", claims.ComId}, {"product_id", item.ProductID}},
+			bson.M{"$inc": bson.M{"num": item.Quantity}})
 		if err != nil {
-			fmt.Println("Error while inserting mongo: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: -1,
+				Msg:  "创建订单失败",
+			})
 			return
 		}
-		subOrders = append(subOrders, result)
 	}
 
 	responseData := make(map[string]interface{})
@@ -336,13 +234,20 @@ func AddCustomerOrder(c *gin.Context) {
 	})
 }
 
-
+// 查询该商品的客户售价
 func CheckCustomerPrice(c *gin.Context) {
+
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+
 	data, _ :=ioutil.ReadAll(c.Request.Body)
 	var orderProducts models.OrderProducts
 	err := json.Unmarshal(data, &orderProducts)
 	if err != nil {
-		fmt.Println("error while unmarshaling: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "创建订单失败",
+		})
 		return
 	}
 	// 从客户商品价格表中找到对应商品的客户价格
@@ -350,7 +255,7 @@ func CheckCustomerPrice(c *gin.Context) {
 
 	var price []float64 // 需要返回给前端的价格数组
 	filter := bson.M{}
-	filter["com_id"] = 1 // need to get com id from middleware
+	filter["com_id"] = claims.ComId // need to get com id from middleware
 	filter["customer_id"] = orderProducts.CustomerID
 
 	collection := models.Client.Collection("customer_product_price")
@@ -370,7 +275,7 @@ func CheckCustomerPrice(c *gin.Context) {
 			price = append(price, p.DefaultPrice)
 
 			var cpp models.CustomerProductPrice
-			cpp.ComID = 1
+			cpp.ComID = claims.ComId
 			cpp.ProductID = product_id
 			cpp.Product = p.Product
 			cpp.CustomerID = orderProducts.CustomerID
@@ -409,18 +314,20 @@ func CheckCustomerPrice(c *gin.Context) {
 	})
 }
 
-
+// 查找该客户的该商品的价格
 func CustomerPrice(c *gin.Context) {
 
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+
 	data, _ := ioutil.ReadAll(c.Request.Body)
-	fmt.Println("get raw data: ", string(data))
+
 	var orderProducts models.OrderProducts
 	err := json.Unmarshal(data, &orderProducts)
 	if err != nil {
-		fmt.Println("error while unmarshaling: ", err)
+		fmt.Println("CustomerPrice error while unmarshaling: ", err)
 		return
 	}
-	SmartPrint(orderProducts)
 
 	var prices []models.CustomerOrderProductPrice
 
@@ -432,10 +339,10 @@ func CustomerPrice(c *gin.Context) {
 	// 从客户商品价格表中找到对应商品的客户价格
 	// 如果没有找到，则将价格设置为商品的默认价格
 
-
+	filter["com_id"] = claims.ComId
 	filter["product_id"] = bson.M{"$in": orderProducts.ProductsID}
 	filter["customer_id"] = bson.M{"$eq": orderProducts.CustomerID}
-	fmt.Println("filter: ", filter)
+	//fmt.Println("filter: ", filter)
 	cur, err := collection.Find(context.TODO(), filter)
 	if err != nil {
 		fmt.Println("err while finding record: ", err)
@@ -450,7 +357,7 @@ func CustomerPrice(c *gin.Context) {
 		}
 		prices = append(prices, result)
 	}
-	fmt.Println("get data: ", prices)
+	//fmt.Println("get data: ", prices)
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Msg:  "Get customer price succeeded",
@@ -597,5 +504,96 @@ func CustomerOrderDetail(c *gin.Context) {
 		Code: 200,
 		Msg:  "Customer order detail response",
 		Data: resData,
+	})
+}
+
+type OrderStatus struct {
+	Status int64 `json:"status"`
+}
+
+// 列出各种未处理的订单
+func UnDealOrders(c *gin.Context) {
+
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+
+	var status OrderStatus
+	if err := c.ShouldBindJSON(&status); err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "params error",
+		})
+		return
+	}
+
+	collection := models.Client.Collection("goods_instance")
+	filter := bson.M{}
+	filter["com_id"] = claims.ComId
+	filter["dest_id"] = 1
+	filter["status"] = status.Status
+
+	var result []models.GoodsInstance
+	cur, err := collection.Find(context.TODO(), filter)
+	if err != nil {
+		fmt.Println("Can't find instances: ", err)
+		return
+	}
+	for cur.Next(context.TODO()) {
+		var res models.GoodsInstance
+		if err := cur.Decode(&res); err != nil {
+			fmt.Println("Can't decode instance: ", err)
+			return
+		}
+		result = append(result, res)
+	}
+
+	c.JSON(http.StatusOK, serializer.Response{
+		Code: 200,
+		Msg:  "Customer order detail response",
+		Data: result,
+	})
+}
+
+// 是否开票
+func OrderInvoicing(c *gin.Context) {
+
+}
+
+type PrepareStockService struct {
+	SubOrderID int64 `json:"sub_order_id"`
+}
+
+// 备货完成
+func PrepareStock(c *gin.Context) {
+	claims, ok := c.Get("claims")
+	if !ok {
+		fmt.Println("Can't get com_id")
+		return
+	}
+	//claims.(auth.Claims).ComId
+	var ps PrepareStockService
+	if err := c.ShouldBindJSON(&ps); err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "params error",
+		})
+		return
+	}
+	collection := models.Client.Collection("customer_suborder")
+	filter := bson.M{}
+	filter["com_id"] = claims.(*auth.Claims).ComId
+	filter["sub_order_id"] = ps.SubOrderID
+	updateResult, err := collection.UpdateOne(context.TODO(), filter, bson.M{"$set" : bson.M{"is_prepare": true}})
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: 200,
+			Msg:  "备货完成失败",
+		})
+		return
+	}
+	fmt.Println("Prepare stock update result: ", updateResult.UpsertedID)
+	c.JSON(http.StatusOK, serializer.Response{
+		Code: 200,
+		Msg:  "备货完成",
 	})
 }

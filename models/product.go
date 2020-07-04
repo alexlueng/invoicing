@@ -12,6 +12,10 @@ type Product struct {
 	DefaultPrice     float64           `json:"default_price" bson:"default_price" form:"default_price"`
 	CusPrice         []int64           `json:"cus_price" bson:"cus_price"`
 	SupPrice         []int64           `json:"sup_price" bson:"sup_price"`
+
+	CatID            int64             `json:"cat_id" bson:"cat_id"` // 商品分类
+
+	MinAlert         int64             `json:"min_alert" bson:"min_alert"` // 最低库存预警
 }
 
 type PriceOfSupplier struct {

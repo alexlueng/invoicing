@@ -7,7 +7,7 @@ import (
 )
 
 // 子订单id查找采购子订单
-func SubOrderIdFindOneSupplierSubOrder(SubOrderId int64, comId int64) (*models.SupplierSubOrder, error) {
+func FindSupplierSubOrderByID(SubOrderId int64, comId int64) (*models.SupplierSubOrder, error) {
 	collection := models.Client.Collection("supplier_sub_order")
 	var subOrder models.SupplierSubOrder
 	filter := bson.M{}

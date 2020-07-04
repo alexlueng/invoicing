@@ -10,31 +10,27 @@ import (
 // Customer represent the customer
 // 需要加上com_id, 每个公司都有自己的ID
 type Customer struct {
-	ID        int64  `json:"customer_id" bson:"customer_id"`
-	ComID     int64  `json:"com_id" bson:"com_id"`
-	Name      string `json:"customer_name" form:"customer_name"`
-	Level     int64  `json:"level" form:"level"`
-	Payment   string `json:"payment" form:"payment"`
-	PayAmount float64 `json:"paid" form:"paid" bson:"paid"`
-	Receiver  string `json:"receiver" form:"receiver"`
-	Address   string `json:"receiver_address" form:"address" bson:"receiver_address"`
-	Phone     string `json:"receiver_phone" form:"phone" bson:"receiver_phone"`
-	//due string
-	LastSettlement int64 `json:"last_settlement" bson:"last_settlement"` // 上次结算时间
+	ID             int64   `json:"customer_id" bson:"customer_id"`
+	ComID          int64   `json:"com_id" bson:"com_id"`
+	Name           string  `json:"customer_name" form:"customer_name"`
+	LevelID        int64   `json:"level" form:"level"`
+	Payment        string  `json:"payment" form:"payment"`
+	PayAmount      float64 `json:"paid" form:"paid" bson:"paid"`
+	Receiver       string  `json:"receiver" form:"receiver"`
+	Address        string  `json:"receiver_address" form:"address" bson:"receiver_address"`
+	Phone          string  `json:"receiver_phone" form:"phone" bson:"receiver_phone"`
+	LastSettlement int64   `json:"last_settlement" bson:"last_settlement"` // 上次结算时间
 }
 
-func (c Customer) FindAll(filter bson.M, options *options.FindOptions) ([]Customer, error) {
+func (c *Customer) FindAll(filter bson.M, options *options.FindOptions) ([]Customer, error) {
 	var result []Customer
 	cur, err := Client.Collection("customer").Find(context.TODO(), filter, options)
-	//defer cur.Close(context.TODO())
 	if err != nil {
-		fmt.Println("Can't get customer list")
 		return nil, err
 	}
 	for cur.Next(context.TODO()) {
 		var r Customer
 		if err := cur.Decode(&r); err != nil {
-			fmt.Println("Can't decode into customer")
 			return nil, err
 		}
 		result = append(result, r)
@@ -42,12 +38,12 @@ func (c Customer) FindAll(filter bson.M, options *options.FindOptions) ([]Custom
 	return result, nil
 }
 
-func (c Customer) Total(filter bson.M) (int64, error) {
+func (c *Customer) Total(filter bson.M) (int64, error) {
 	total, err := Client.Collection("customer").CountDocuments(context.TODO(), filter)
 	return total, err
 }
 
-func (c Customer) CheckExist() bool {
+func (c *Customer) CheckExist() bool {
 	filter := bson.M{}
 	filter["com_id"] = c.ComID
 	filter["name"] = c.Name
@@ -60,7 +56,7 @@ func (c Customer) CheckExist() bool {
 	return true
 }
 
-func (c Customer) Insert() error {
+func (c *Customer) Insert() error {
 	_, err := Client.Collection("customer").InsertOne(context.TODO(), c)
 	if err != nil {
 		return err
@@ -69,21 +65,19 @@ func (c Customer) Insert() error {
 }
 
 // false: 检查不通过
-func (c Customer) UpdateCheck() bool {
+func (c *Customer) UpdateCheck() bool {
 
 	filter := bson.M{}
 	filter["com_id"] = c.ComID
 	filter["name"] = c.Name
 	cur, err := Client.Collection("customer").Find(context.TODO(), filter)
 	if err != nil {
-		fmt.Println("error found decoding customer: ", err)
 		return false
 	}
 	for cur.Next(context.TODO()) {
 		var tempRes Customer
 		err := cur.Decode(&tempRes)
 		if err != nil {
-			fmt.Println("error found decoding customer: ", err)
 			return false
 		}
 		if tempRes.ID != c.ID {
@@ -93,9 +87,7 @@ func (c Customer) UpdateCheck() bool {
 	return true
 }
 
-
-
-func (c Customer) Update() error {
+func (c *Customer) Update() error {
 	fmt.Println(c)
 	filter := bson.M{}
 	filter["com_id"] = c.ComID
@@ -103,18 +95,18 @@ func (c Customer) Update() error {
 	// 更新记录
 	_, err := Client.Collection("customer").UpdateOne(context.TODO(), filter, bson.M{
 		"$set": bson.M{"name": c.Name,
-			"receiver": c.Receiver,
-			"receiver_phone": c.Phone,
+			"receiver":         c.Receiver,
+			"receiver_phone":   c.Phone,
 			"receiver_address": c.Address,
-			"payment": c.Payment,
-			"level": c.Level}})
+			"payment":          c.Payment,
+			"level":            c.LevelID}})
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c Customer) Delete() error {
+func (c *Customer) Delete() error {
 	filter := bson.M{}
 	filter["com_id"] = c.ComID
 	filter["customer_id"] = c.ID
@@ -134,7 +126,6 @@ func (c *Customer) FindByID(id int64) (*Customer, error) {
 	collection := Client.Collection("customer")
 	err := collection.FindOne(context.TODO(), filter).Decode(c)
 	if err != nil {
-		fmt.Println("inner error: ", err)
 		return nil, err
 	}
 	return c, nil
@@ -154,8 +145,8 @@ type CustReq struct {
 
 type ResponseCustomerData struct {
 	Customers   []Customer `json:"customers"`
-	Total       int64        `json:"total"`
-	Pages       int64        `json:"pages"`
-	Size        int64        `json:"size"`
-	CurrentPage int64        `json:"current_page"`
+	Total       int64      `json:"total"`
+	Pages       int64      `json:"pages"`
+	Size        int64      `json:"size"`
+	CurrentPage int64      `json:"current_page"`
 }

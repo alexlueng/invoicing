@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"io/ioutil"
 	"jxc/auth"
 	"jxc/models"
 	"jxc/serializer"
@@ -19,8 +21,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
-
-
 
 //设置默认路由当访问一个错误网站时返回
 func NotFound(c *gin.Context) {
@@ -49,7 +49,6 @@ func UploadImages(c *gin.Context) {
 		log.Fatal(err)
 	}
 
-	//save_path := os.Getenv("UPLOAD_PATH")
 	save_path := dir
 
 	urls := []string{}
@@ -88,8 +87,6 @@ func UploadImages(c *gin.Context) {
 		}
 		ret_url := "http://img.jxc.weqi.exechina.com" + ypyunURL1
 		urls = append(urls, ret_url)
-		//fmt.Println("filename: ", upload_path + filename)
-
 	}
 
 	c.JSON(http.StatusOK, serializer.Response{
@@ -97,35 +94,6 @@ func UploadImages(c *gin.Context) {
 		Msg:  "Get supplier instance",
 		Data: urls,
 	})
-}
-
-// 根据请求的域名，确定是哪家公司
-//func GetCompany(host string) (models.CompanyData, error) {
-//	//host := c.Request.Host //这里可能获取到的是 http://host/ 的结构，需要做进一步拆分
-//	// 在域名表中找到公司id
-//	domain, err := service.FindDomain(host)
-//	if err != nil {
-//		// 域名没有注册，数据库中没有记录
-//		return models.CompanyData{}, errors.New("域名未注册！")
-//	}
-//	models.Client.Collection("domain")
-//	company, err := service.FindCompany(domain.ComID)
-//	if err != nil {
-//		// 在库中没找到对应的公司
-//		return company, errors.New("未找到对应的公司")
-//	}
-//	return company, nil
-//}
-
-func Index(c *gin.Context) {
-	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
-		Msg:  "Hello",
-	})
-}
-
-func SystemConfig(c *gin.Context) {
-
 }
 
 // 顺序生成一个6位数的字符串，然后与日期拼接，得到当前的order_sn
@@ -188,7 +156,6 @@ func SmartPrint(i interface{}){
 func SetPaginationAndOrder(ordF string, ordFields []string,  ord string, page, size int64) *options.FindOptions {
 
 	exist := false
-//	fmt.Println("order field: ", req.OrdF)
 	for _, v := range ordFields {
 		if ordF == v {
 			exist = true
@@ -198,9 +165,9 @@ func SetPaginationAndOrder(ordF string, ordFields []string,  ord string, page, s
 	if !exist {
 		ordF = ordFields[0]
 	}
-	order := 1
-	if ord == "desc" {
-		order = -1
+	order := -1
+	if ord == "asc" {
+		order = 1
 		//req.Ord = "desc"
 	}
 
@@ -229,12 +196,54 @@ func getLastID(field_name string) int64 {
 		fmt.Println("can't get ID")
 		return 0
 	}
-	collection.UpdateOne(context.TODO(), bson.M{"name": field_name}, bson.M{"$set": bson.M{"count": c.Count + 1}})
-	fmt.Printf("%s count: %d", field_name, c.Count)
+	//collection.UpdateOne(context.TODO(), bson.M{"name": field_name}, bson.M{"$set": bson.M{"count": c.Count + 1}})
+	//fmt.Printf("%s count: %d", field_name, c.Count)
 	return c.Count + 1
+}
+
+func setLastID(field_name string) error {
+	collection := models.Client.Collection("counters")
+	updateResult, err := collection.UpdateOne(context.TODO(), bson.D{{"name", field_name}}, bson.M{"$inc": bson.M{"count": 1}})
+	if err != nil {
+		return err
+	}
+	fmt.Println("Update result: ", updateResult.UpsertedID)
+	return nil
 }
 
 // 本地文件上传到又拍云
 
+
+type Config struct {
+	ProductMenu string `json:"product_menu"`
+}
+
+func GetConfig(c *gin.Context) {
+
+	// TODO：需要一个灵活的方法
+	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	jsonFile, err := os.Open(dir + "\\config.json")
+	if err != nil {
+		fmt.Println("Can't read json file: ", err)
+		return
+	}
+	defer jsonFile.Close()
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+	var config Config
+	err = json.Unmarshal(byteValue, &config)
+	if err != nil {
+		fmt.Println("Can't get config: ", err)
+		return
+	}
+	c.JSON(http.StatusOK, serializer.Response{
+		Code: 200,
+		Msg:  "Get Config",
+		Data: config,
+	})
+}
 
 

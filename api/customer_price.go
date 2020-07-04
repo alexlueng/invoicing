@@ -19,20 +19,9 @@ import (
 // AddCustomerPrice 操作的是customer_product_price这张表
 // 主要有两个地方使用：1.售价管理页面 2.客户下订单时没有对应的售价
 func AddCustomerPrice(c *gin.Context) {
-	//com_id customer_id customer_name product_id product_name price
 
-	//com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-	//moduleID, _ := strconv.Atoi(com.ModuleId)
-	//if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-	//	c.JSON(http.StatusOK, serializer.Response{
-	//		Code: -1,
-	//		Msg:  "域名错误",
-	//	})
-	//	return
-	//}
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
 
 	var customerProductPrice models.CustomerProductPrice
 	data, _ := ioutil.ReadAll(c.Request.Body)
@@ -89,7 +78,6 @@ func AddCustomerPrice(c *gin.Context) {
 		}
 		fmt.Println("insert new record: ", insertResult.InsertedID)
 
-
 		filter = bson.M{}
 		filter["product_id"] = customerProductPrice.ProductID
 		collection = models.Client.Collection("product")
@@ -114,8 +102,6 @@ func AddCustomerPrice(c *gin.Context) {
 	timestamp := time.Now().Unix()
 	customerProductPrice.CreateAt = timestamp
 	customerProductPrice.IsValid = true
-
-
 
 	collection := models.Client.Collection("customer_product_price")
 
@@ -143,7 +129,6 @@ func AddCustomerPrice(c *gin.Context) {
 		//没有找到这个记录，说明这个客户价格是新增的
 		//保存这条记录，更新product表中的cus_product字段
 		fmt.Println("no document found, this is a new record")
-
 
 		_, err = collection.InsertOne(context.TODO(), customerProductPrice)
 		if err != nil {
@@ -203,9 +188,9 @@ func AddCustomerPrice(c *gin.Context) {
 }
 
 type ProductList struct {
-	ID int64 `bson:"product_id"`
-	Product string `bson:"product"`
-	CusPrice []int64 `bson:"cus_price"`
+	ID           int64   `bson:"product_id"`
+	Product      string  `bson:"product"`
+	CusPrice     []int64 `bson:"cus_price"`
 	DefaultPrice float64 `bson:"default_price"`
 }
 
@@ -213,7 +198,6 @@ func ListCustomerPrice(c *gin.Context) {
 
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-
 
 	// 得到所有的商品id
 	// 得到所有的客户
@@ -233,17 +217,12 @@ func ListCustomerPrice(c *gin.Context) {
 		return
 	}
 
-	//fmt.Println("customer name: ", req.CustomerName)
-
 	req.Page, req.Size = SetDefaultPageAndSize(req.Page, req.Size)
 
 	option := options.Find()
 	option.SetLimit(int64(req.Size))
 	option.SetSkip((int64(req.Page) - 1) * int64(req.Size))
-	//	option.SetSort(bson.D{{req.OrdF, order}})
-	option.Projection = bson.M{"product_id": 1, "product": 1, "cus_price": 1, "default_price":1, "_id": 0}
-
-	//option.S
+	option.Projection = bson.M{"product_id": 1, "product": 1, "cus_price": 1, "default_price": 1, "_id": 0}
 
 	filter := bson.M{}
 	filter["com_id"] = claims.ComId
@@ -256,22 +235,23 @@ func ListCustomerPrice(c *gin.Context) {
 	collection := models.Client.Collection("product")
 	cur, err := collection.Find(context.TODO(), filter, option)
 
-	// 对于cur, file等操作，都需要defer close掉，防止内存泄露
-	defer cur.Close(context.TODO())
-
 	if err != nil {
-		fmt.Println("error found finding products: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Can't get products",
+		})
 		return
 	}
 	for cur.Next(context.TODO()) {
 		var result ProductList
 		err := cur.Decode(&result)
 		if err != nil {
-			fmt.Println("error found decoding product: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't decode supplier list",
+			})
 			return
 		}
-		//fmt.Println("product name: ", result.Product)
-
 		allProducts = append(allProducts, result)
 	}
 
@@ -279,21 +259,15 @@ func ListCustomerPrice(c *gin.Context) {
 
 	// 根据商品id得到客户名和售价
 	// 在商品表中维护一个售价客户id,刚可省去一次循环查找数据库的工作
-
 	// 可以直接从商品表中的cus_price字段中得到已有售价记录的客户id
-	// product.cus_price
 	filter = bson.M{}
 	filter["com_id"] = claims.ComId
-	//if req.CustomerName != "" {
-	//	filter["customer_name"] = req.CustomerName
-	//}
 
 	allProductsID := []int64{}
 	for _, product := range allProducts {
 		allProductsID = append(allProductsID, product.ID)
 		responseData[product.Product] = make(map[string]interface{})
 	}
-	fmt.Println("all productIDs: ", allProductsID)
 
 	// 按商品名字去搜索
 	// TODO: 可以优化这个流程，因为这里只选择一种商品，所以不用循环整个product表了
@@ -306,13 +280,8 @@ func ListCustomerPrice(c *gin.Context) {
 	if len(allProductsID) > 0 {
 		filter["product_id"] = bson.M{"$in": allProductsID}
 	}
-
 	filter["is_valid"] = true
-
-	fmt.Println("filter: ", filter)
-
 	collection = models.Client.Collection("customer_product_price")
-
 
 	cur, err = collection.Find(context.TODO(), filter)
 	if err != nil {
@@ -326,8 +295,6 @@ func ListCustomerPrice(c *gin.Context) {
 			return
 		}
 
-		//fmt.Println(res)
-		//responseData[res.Product]["default_price"] = res.DefaultPrice
 		responseData[res.Product]["product_id"] = res.ProductID
 		if responseData[res.Product]["customer_price"] == nil {
 			responseData[res.Product]["customer_price"] = []models.CustomerProductPrice{} //make(map[string]models.CustomerProductPrice)
@@ -352,7 +319,10 @@ func ListCustomerPrice(c *gin.Context) {
 		for cur.Next(context.TODO()) {
 			var res models.CustomerProductPrice
 			if err := cur.Decode(&res); err != nil {
-				fmt.Println("err: ", err)
+				c.JSON(http.StatusOK, serializer.Response{
+					Code: serializer.CodeError,
+					Msg:  "Can't decode customer product price",
+				})
 				return
 			}
 			if responseData[res.Product]["default_price"] == nil {
@@ -363,13 +333,11 @@ func ListCustomerPrice(c *gin.Context) {
 
 	}
 
-
-	var total int64
-	total, _ = models.Client.Collection("product").CountDocuments(context.TODO(), bson.D{{"com_id", claims.ComId}})
-
+	var total int
+	//total, _ = models.Client.Collection("customer_product_price").CountDocuments(context.TODO(), filter)
+	total = len(responseData)
 
 	res := models.ResponseCustomerProductPriceData{}
-	//res.DefaultPrice = allProducts
 	res.PriceTable = responseData
 	res.Size = int(req.Size)
 	res.Pages = int(req.Page)
@@ -377,7 +345,7 @@ func ListCustomerPrice(c *gin.Context) {
 	res.Total = int(total)
 
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Get all products",
 		Data: res,
 	})
@@ -388,7 +356,6 @@ func DeleteCustomerPrice(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 	fmt.Println("ComID: ", claims.ComId)
-
 
 	var req models.CustomerProductPriceReq
 
@@ -414,6 +381,5 @@ func DeleteCustomerPrice(c *gin.Context) {
 		Code: 200,
 		Msg:  "Delete customer price success",
 	})
-
 
 }

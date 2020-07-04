@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"encoding/json"
+	"github.com/360EntSecGroup-Skylar/excelize"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -12,6 +13,7 @@ import (
 	"jxc/models"
 	"jxc/serializer"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -104,6 +106,15 @@ func ListSupplierSettlement(c *gin.Context) {
 		filter["status"] = 3 //状态为3是已审核的订单，进入结算
 
 		cur, err := collection.Find(context.TODO(), filter)
+
+		if err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: -1,
+				Msg:  "Can't find settlement",
+			})
+			return
+		}
+
 		total, _ = collection.CountDocuments(context.TODO(), filter)
 
 		for cur.Next(context.TODO()) {
@@ -243,7 +254,6 @@ func GenSupSettlement(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-
 	// 生成结算单是按照两种方式 1、按照选定时间之前的所有未结算的商品实例 2、选择特定的商品实例进行结算
 
 	data, _ := ioutil.ReadAll(c.Request.Body)
@@ -269,7 +279,7 @@ func GenSupSettlement(c *gin.Context) {
 		filter["instance_id"] = bson.M{"$in": gs.InstanceIDs}
 	}
 
-	filter["com_id"] = 1
+	filter["com_id"] = claims.ComId
 	//filter["dest_id"] = gs.CustomerID
 	filter["supsettle"] = 0 // 未结算
 	filter["status"] = 3 // 审核过
@@ -319,6 +329,7 @@ func GenSupSettlement(c *gin.Context) {
 		return
 	}
 	fmt.Println("Insert result: ", insertResult.InsertedID)
+	setLastID("supplier_settlement")
 
 	// 修改商品实例的状态
 	updateResult, err := collection.UpdateMany(context.TODO(),
@@ -358,7 +369,7 @@ func FindSettlementSuppliers(c *gin.Context) {
 	// 在订单列表中找
 	collection := models.Client.Collection("goods_instance")
 
-	supplierIDS, err := collection.Distinct(context.TODO(), "src_id", bson.M{"status":bson.M{"$eq":3}, "src_type":bson.M{"$eq":2}})
+	supplierIDS, err := collection.Distinct(context.TODO(), "src_id", bson.M{"com_id": claims.ComId, "status":bson.M{"$eq":3}, "src_type":bson.M{"$eq":2}})
 	if err != nil {
 		fmt.Println("can't distinct supplier: ", err)
 		return
@@ -537,6 +548,7 @@ func SupSettlementDetail(c *gin.Context) {
 	cur, err := collection.Find(context.TODO(), filter)
 	if err != nil {
 		fmt.Println("Can't find supplier instance: ", err)
+		return
 	}
 	for cur.Next(context.TODO()) {
 		var res models.GoodsInstance
@@ -629,6 +641,130 @@ func SupSettlementConfirm(c *gin.Context) {
 
 }
 
+type SupDownloadService struct {
+	SrcID int64 `json:"src_id"`
+}
+
+
+func SupplierSettlementDownload(c *gin.Context) {
+
+	// 根据域名得到COMID
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+
+	var id SupDownloadService
+	if err := c.ShouldBindJSON(&id); err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "生成结算单失败",
+		})
+	}
+
+
+	filter := bson.M{}
+	filter["com_id"] = claims.ComId
+	filter["src_id"] = id.SrcID
+
+
+	collection := models.Client.Collection("goods_instance")
+	cur, err := collection.Find(context.TODO(), filter)
+	if err != nil {
+		fmt.Println("Can't get instance: ", err)
+		return
+	}
+	var instances []models.GoodsInstance
+
+	for cur.Next(context.TODO()) {
+		var res models.GoodsInstance
+		err := cur.Decode(&res)
+		if err != nil {
+			fmt.Println("Can't get instance: ", err)
+			return
+		}
+		instances = append(instances, res)
+	}
+
+	xlsx := excelize.NewFile()
+
+	xlsx.MergeCell("Sheet1", "A1", "G1")
+	xlsx.SetRowHeight("Sheet1", 1, 40)
+
+	xlsx.SetColWidth("Sheet1", "F", "F", 30)
+	xlsx.SetColWidth("Sheet1", "G", "G", 30)
+	//xlsx.SetColWidth("Sheet1", "H", "H", 30)
+	//设置单元格样式
+	//"fill":{"type":"pattern","color":["#CCFFFF"],
+	//"pattern":1}}
+	style, err := xlsx.NewStyle(`{"alignment":{"horizontal":"center","Vertical":"center"},
+				"font":{"bold":true, "size": 30},
+				"border":[{"type":"left","color":"FF0000","style":1}]}`)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+
+	xlsx.SetCellStyle("Sheet1", "A1", "A1", style)
+	xlsx.SetCellValue("Sheet1", "A1", instances[0].SrcTitle + time.Now().Format("2006-01-02") + "结算单")
+
+
+	//xlsx.SetCellValue("Sheet1", "A2", "结算单号")
+	xlsx.SetCellValue("Sheet1", "A2", "商品名称")
+	xlsx.SetCellValue("Sheet1", "B2", "联系人")
+	xlsx.SetCellValue("Sheet1", "C2", "售价")
+	xlsx.SetCellValue("Sheet1", "D2", "数量")
+	xlsx.SetCellValue("Sheet1", "E2", "总金额")
+	xlsx.SetCellValue("Sheet1", "F2", "下单时间")
+	//xlsx.SetCellValue("Sheet1", "G2", "发货时间")
+	xlsx.SetCellValue("Sheet1", "G2", "确认状态")
+
+	var totalPrice float64
+	var totalAmount int64
+
+	for i, item := range instances {
+
+		lineNo := i + 3
+		strLineNo := strconv.Itoa(lineNo)
+
+		//xlsx.SetCellValue("Sheet1", "A" + strLineNo, item.CusSettleOrderSN)
+		xlsx.SetCellValue("Sheet1", "A" + strLineNo, item.Product)
+		xlsx.SetCellValue("Sheet1", "B" + strLineNo, item.Contacts)
+		xlsx.SetCellValue("Sheet1", "C" + strLineNo, item.SupplierPrice)
+		xlsx.SetCellValue("Sheet1", "D" + strLineNo, item.Amount)
+		xlsx.SetCellValue("Sheet1", "E" + strLineNo, item.SupplierPrice * float64(item.Amount))
+		xlsx.SetCellValue("Sheet1", "F" + strLineNo, time.Unix(item.OrderTime, 0).Format("2006-01-02 15:04:05")) // time.Unix(timestamp, 0).Format(timeLayout)
+		//xlsx.SetCellValue("Sheet1", "G" + strLineNo, time.Unix(item.ShipTime, 0).Format("2006-01-02 15:04:05"))
+		if item.Status == 3 {
+			xlsx.SetCellValue("Sheet1", "G" + strLineNo, "已确认")
+			totalAmount += item.Amount
+			totalPrice += item.SupplierPrice * float64(item.Amount)
+		} else {
+			xlsx.SetCellValue("Sheet1", "G" + strLineNo, "未确认，不计入本次结算")
+		}
+	}
+	endLine := strconv.Itoa(len(instances) + 3)
+
+	//style, err = xlsx.NewStyle(`{"fill":{"type":"pattern","color":["#FFCCCC"],
+	//			"pattern":1}}`)
+	//if err != nil {
+	//	fmt.Println(err.Error())
+	//}
+	//xlsx.SetCellStyle("Sheet1", "D" + endLine, "F" + endLine, style)
+	xlsx.SetCellValue("Sheet1", "C" + endLine, "总计")
+	xlsx.SetCellValue("Sheet1", "D" + endLine, totalAmount)
+	xlsx.SetCellValue("Sheet1", "E" + endLine, totalPrice)
+
+
+	//保存文件方式
+	//_ = xlsx.SaveAs("./aaa.xlsx")
+
+	c.Header("Content-Type", "application/octet-stream")
+	c.Header("Content-Disposition", "attachment; filename=" + strconv.Itoa(int(id.SrcID)) + ".xlsx")
+	c.Header("Content-Transfer-Encoding", "binary")
+
+	//回写到web 流媒体 形成下载
+	_ = xlsx.Write(c.Writer)
+
+}
 
 
 

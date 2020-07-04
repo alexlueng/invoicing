@@ -31,15 +31,13 @@ func FindOneWarehouse(warehouse_id, com_id int64) (*models.Warehouse, error) {
 
 // 如果没有提交仓库id则获取公司所有仓库信息
 // 如果有则获取所需部分
-func FindWarehouse(warehouse_ids []int64, com_id int64) (map[int64]models.Warehouse, error) {
+func FindWarehouse(warehouse_id int64, com_id int64) (map[int64]models.Warehouse, error) {
 	collection := models.Client.Collection("warehouse")
 	var warehouse models.Warehouse
 	warehouseArr := make(map[int64]models.Warehouse) // map[Warehouse_id]models.Warehouse
 
 	filter := bson.M{}
-	if warehouse_ids != nil {
-		filter["warehouse_id"] = bson.M{"$in": warehouse_ids}
-	}
+	//filter["warehouse_id"] = warehouse_id
 	filter["com_id"] = com_id
 
 	cur, err := collection.Find(context.TODO(), filter)
@@ -107,6 +105,9 @@ func AddWarehouse(warehouse models.Warehouse, stuffs []interface{}) (error) {
 	_, err := wosCollection.InsertOne(context.TODO(), warehouse)
 	if err != nil {
 		return err
+	}
+	if len(stuffs) == 0 {
+		return nil
 	}
 	_, err = stuffsCollection.InsertMany(context.TODO(), stuffs)
 	if err != nil {

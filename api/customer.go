@@ -25,7 +25,6 @@ func ListCustomers(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-
 	var req models.CustReq
 
 	err := c.ShouldBind(&req)
@@ -127,26 +126,12 @@ func AddCustomer(c *gin.Context) {
 
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
 
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	customer := models.Customer{}
 	_ = json.Unmarshal(data, &customer)
 
 	customer.ComID = claims.ComId
-
-
-	//validate := validator.New()
-	//validate.RegisterValidation("my-validate", customFunc)
-	//err = validate.Struct(customer)
-	//if err != nil {
-	//	fmt.Println(err)
-	//	return
-	//}
-	//fmt.Println(err)
-	//SmartPrint(customer)
-	//collection := models.Client.Collection("customer")
-	//result := models.Customer{}
 
 	if !ENABLESAMECUSTOMER { // 不允许重名的情况，先查找数据库是否已经存在记录，如果有，则返回错误码－1
 		if customer.CheckExist() {
@@ -161,13 +146,17 @@ func AddCustomer(c *gin.Context) {
 
 	err := customer.Insert()
 	if err != nil {
-		fmt.Println("Error while inserting mongo: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "创建客户失败",
+		})
 		return
 	}
 
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Msg:  "Customer create succeeded",
+		Data: customer,
 	})
 }
 
@@ -176,7 +165,6 @@ func UpdateCustomer(c *gin.Context) {
 
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
 
 	updateCus := models.Customer{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
@@ -217,7 +205,6 @@ func DeleteCustomer(c *gin.Context) {
 
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
 
 	var d DeleteCustomerService
 

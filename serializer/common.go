@@ -33,6 +33,13 @@ const (
 	CodeParamErr = 40001
 )
 
+const (
+	CodeError = -1
+	CodeTokenErr = -2
+	CodeSuccess = 200
+)
+
+
 // CheckLogin 检查登录
 func CheckLogin() Response {
 	return Response{

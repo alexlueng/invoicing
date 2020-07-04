@@ -466,12 +466,8 @@ func DeleteEmployee(c *gin.Context) {
 
 // 获取职位列表
 func AllPositions(c *gin.Context) {
-	// 根据域名获取comid
-	// 根据域名得到com_id
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
-
 
 	// 指定数据集
 	collection := models.Client.Collection("company")

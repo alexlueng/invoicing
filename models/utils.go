@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -17,7 +18,7 @@ func (de *DomainError) Error() string {
 
 func GetComIDAndModuleByDomain(domain string) (*DomainData, error) {
 
-
+	fmt.Println("domain string: ", domain)
 
 	var com DomainData
 	collection := Client.Collection("domain")

@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"io/ioutil"
@@ -12,22 +11,21 @@ import (
 	"jxc/serializer"
 	"net/http"
 )
+
 //允许同名的供应商
 const ENABLESAMESUPPLIER = false
 
-
 func ListSuppliers(c *gin.Context) {
-	// 根据域名得到com_id
+
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
 
 	var req models.SupplierReq
 
 	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "参数解释错误",
 		})
 		return
@@ -41,32 +39,10 @@ func ListSuppliers(c *gin.Context) {
 
 	// 页面搜索
 	filter := bson.M{}
-	//IdMin,IdMax
-	if req.IdMin > req.IdMax {
-		t := req.IdMax
-		req.IdMax = req.IdMin
-		req.IdMin = t
-	}
-	if (req.IdMin == req.IdMax) && (req.IdMin != 0) {
-		//filter["id"] = bson.M{"$gte":0}
-		filter["id"] = bson.M{"$eq": req.IdMin}
-	} else {
-		if req.IdMin > 0 {
-			filter["id"] = bson.M{"$gte": req.IdMin}
-		}
-		if req.IdMax > 0 {
-			filter["id"] = bson.M{"$lt": req.IdMax}
-		}
-	}
-	//ID int64 `json:"supplier_id" form:"supplier_id"`
-	if req.ID > 0 {
-		filter["supplier_id"] = bson.M{"$eq": req.ID}
-	}
-	//Phone string `json:"phone" form:"phone"`
+
 	if req.Phone != "" {
 		filter["phone"] = bson.M{"$regex": req.Phone}
 	}
-	//SupplierName string `json:"supplier_name" form:"supplier_name"`
 	if req.Contacts != "" {
 		filter["contacts"] = bson.M{"$regex": req.Contacts}
 	}
@@ -75,19 +51,19 @@ func ListSuppliers(c *gin.Context) {
 		filter["supplier_name"] = bson.M{"$regex": req.Name}
 	}
 
-	// 每个查询都要带着com_id
 	filter["com_id"] = claims.ComId
 
-	// all conditions are set then start searching
 	var suppliers []models.Supplier
-	supplier :=  models.Supplier{}
+	supplier := models.Supplier{}
 
 	suppliers, err = supplier.FindAll(filter, option)
 	if err != nil {
-		fmt.Println("error found decoding supplierS: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Can't find suppliers",
+		})
 		return
 	}
-
 
 	//查询的总数
 	total, _ := supplier.Total(filter)
@@ -100,7 +76,7 @@ func ListSuppliers(c *gin.Context) {
 	resData.CurrentPage = page
 
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Get suppliers",
 		Data: resData,
 	})
@@ -108,7 +84,6 @@ func ListSuppliers(c *gin.Context) {
 func AddSuppliers(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
 
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	supplier := models.Supplier{}
@@ -117,39 +92,55 @@ func AddSuppliers(c *gin.Context) {
 
 	supplier.ComID = claims.ComId
 
-	//collection := models.Client.Collection("supplier")
-	//result := models.Supplier{}
 	if !ENABLESAMESUPPLIER { // 不允许重名的情况，先查找数据库是否已经存在记录，如果有，则返回错误码－1
 		if supplier.CheckExist() {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  "该供应商已经存在",
 			})
 			return
 		}
 	}
-	supplier.ID = int64(getLastID("supplier"))
+	supplier.ID = getLastID("supplier")
 	supplier.SupplyList = []int64{}
+
+	// 设置供应商初始密码
+	supplier.Password = supplier.Phone[5:]
+
+	// 初始化供应商通知方式
+	supplier.NotifyWay = append(supplier.NotifyWay, models.Notify{
+		Name:  "email",
+		Using: false,
+	})
+	supplier.NotifyWay = append(supplier.NotifyWay, models.Notify{
+		Name:  "sms",
+		Using: false,
+	})
+	supplier.NotifyWay = append(supplier.NotifyWay, models.Notify{
+		Name:  "wx",
+		Using: false,
+	})
 
 	err := supplier.Insert()
 
 	if err != nil {
-		fmt.Println("Error while inserting mongo: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Can't add new supplier",
+		})
 		return
 	}
+	setLastID("supplier")
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Supplier create succeeded",
+		Data: supplier,
 	})
 }
 
-
 func UpdateSuppliers(c *gin.Context) {
-	// 根据域名得到com_id
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
-
 
 	updateSupplier := models.Supplier{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
@@ -162,14 +153,14 @@ func UpdateSuppliers(c *gin.Context) {
 
 	if !updateSupplier.UpdateCheck() {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "Supplier name exist",
 		})
 		return
 	}
 	if err := updateSupplier.Update(); err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "Supplier update failed",
 		})
 		return
@@ -181,17 +172,19 @@ func UpdateSuppliers(c *gin.Context) {
 	filter["supplier_id"] = updateSupplier.ID
 	filter["is_valid"] = true
 
-	updateResult, err := collection.UpdateMany(context.TODO(), filter, bson.M{
+	_, err := collection.UpdateMany(context.TODO(), filter, bson.M{
 		"$set": bson.M{
 			"supplier": updateSupplier.SupplierName,}})
 	if err != nil {
-		fmt.Println("Update result: ", updateResult.UpsertedID)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Supplier product price update failed",
+		})
+		return
 	}
 
-	fmt.Println("Update results: ", updateResult.UpsertedID)
-
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Supplier update succeeded",
 	})
 }
@@ -202,11 +195,8 @@ type DeleteSupplierService struct {
 
 func DeleteSuppliers(c *gin.Context) {
 
-	// 根据域名得到com_id
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
-
 
 	var d DeleteSupplierService
 
@@ -215,18 +205,19 @@ func DeleteSuppliers(c *gin.Context) {
 
 	supplier := models.Supplier{
 		ComID: claims.ComId,
-		ID: d.ID,
+		ID:    d.ID,
 	}
 	if err := supplier.Delete(); err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "Customer delete failed",
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Supplier delete succeeded",
 	})
 }
+

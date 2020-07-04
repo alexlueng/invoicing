@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 	"encoding/json"
+	//"github.com/360EntSecGroup-Skylar/excelize"
 	"go.mongodb.org/mongo-driver/bson"
 	"io/ioutil"
 	"jxc/auth"
 	"jxc/service"
 	"jxc/util"
+	//"strconv"
 	"time"
 
 	"fmt"
@@ -345,7 +347,7 @@ func AddWarehouse(c *gin.Context) {
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Data: data,
-		Msg:  "Customer create succeeded",
+		Msg:  "Warehouse create succeeded",
 	})
 
 }
@@ -539,20 +541,17 @@ func DeleteWarehouse(c *gin.Context) {
 	})
 }
 
+type ReqWarehouseDetail struct {
+	WarehouseId int64  `json:"warehouse_id" form:"warehouse_id"` // 仓库id
+	Type        string `json:"type" form:"type"`                 // 搜索类型
+	ProductId   int64  `json:"product_id" form:"product_id"`     // 商品id
+}
+
 // 获取仓库详情，有哪些商品，多少库存
 func WarehouseDetail(c *gin.Context) {
-	// 根据域名得到com_id
+
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
-
-
-	type ReqWarehouseDetail struct {
-		models.BaseReq
-		WarehouseId int64  `json:"warehouse_id" form:"warehouse_id"` // 仓库id
-		Type        string `json:"type" form:"type"`                 // 搜索类型
-		ProductId   int64  `json:"product_id" form:"product_id"`     // 商品id
-	}
 
 	var req ReqWarehouseDetail
 
@@ -560,7 +559,7 @@ func WarehouseDetail(c *gin.Context) {
 	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "参数解释错误",
 		})
 		return
@@ -570,7 +569,7 @@ func WarehouseDetail(c *gin.Context) {
 	warehouse, err := service.FindOneWarehouse(req.WarehouseId, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
@@ -578,11 +577,10 @@ func WarehouseDetail(c *gin.Context) {
 
 	// 组装搜索条件
 
-	var warehouseIdArr []int64
-	warehouseIdArr = append(warehouseIdArr, req.WarehouseId)
 
 	// 根据product字段，去获取库存信息
-	wosProduct, err := service.GetProductWos(warehouse.Product, claims.ComId, warehouseIdArr)
+	// TODO：通过仓库商品库存表来取
+	warehouseProduct, err := service.GetProductInfoOfWarehouse(warehouse.Product[0], claims.ComId, req.WarehouseId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -593,11 +591,89 @@ func WarehouseDetail(c *gin.Context) {
 
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
-		Data: wosProduct,
+		Data: warehouseProduct,
 		Msg:  "",
 	})
 
 }
+
+type WhDownloadService struct {
+	WarehouseID int64 `json:"warehouse_id"`
+	ProductIDs  []int64 `json:"product_ids"`
+}
+
+// 导出仓库详情页里的信息到excel中
+/*func WarehouseDownload(c *gin.Context) {
+
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+
+	var whDownloadSrv WhDownloadService
+	if err := c.ShouldBindJSON(&whDownloadSrv); err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "Params error",
+		})
+		return
+	}
+
+	var warehouses []int64
+	warehouses = append(warehouses, whDownloadSrv.WarehouseID)
+	wosProduct, err := service.GetProductWos(whDownloadSrv.ProductIDs, claims.ComId, warehouses)
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  err.Error(),
+		})
+		return
+	}
+
+	xlsx := excelize.NewFile()
+
+	xlsx.MergeCell("Sheet1", "A1", "E1")
+	xlsx.SetRowHeight("Sheet1", 1, 40)
+
+	xlsx.SetColWidth("Sheet1", "F", "F", 30)
+	xlsx.SetColWidth("Sheet1", "G", "G", 30)
+
+	style, err := xlsx.NewStyle(`{"alignment":{"horizontal":"center","Vertical":"center"},
+				"font":{"bold":true, "size": 25},
+				"border":[{"type":"left","color":"FF0000","style":1}]}`)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	xlsx.SetCellStyle("Sheet1", "A1", "A1", style)
+	xlsx.SetCellValue("Sheet1", "A1", "" + time.Now().Format("2006-01-02") + "库存记录表")
+	//xlsx.SetCellValue("Sheet1", "A2", "结算单号")
+	xlsx.SetCellValue("Sheet1", "A2", "商品名称")
+	xlsx.SetCellValue("Sheet1", "B2", "当前库存")
+	xlsx.SetCellValue("Sheet1", "C2", "未入库")
+	xlsx.SetCellValue("Sheet1", "D2", "已发货")
+	xlsx.SetCellValue("Sheet1", "E2", "待发货")
+
+	for i, item := range wosProduct {
+
+		lineNo := i + 3
+		strLineNo := strconv.Itoa(int(lineNo))
+
+		//xlsx.SetCellValue("Sheet1", "A" + strLineNo, item.CusSettleOrderSN)
+		xlsx.SetCellValue("Sheet1", "A" + strLineNo, item.ProductName)
+		xlsx.SetCellValue("Sheet1", "B" + strLineNo, item.Wos[i].Num)
+		xlsx.SetCellValue("Sheet1", "C" + strLineNo, item.Wos[i].NotWosed)
+		xlsx.SetCellValue("Sheet1", "D" + strLineNo, item.Wos[i].Shipped)
+		xlsx.SetCellValue("Sheet1", "E" + strLineNo, item.Wos[i].NotShipped)
+
+	}
+
+	c.Header("Content-Type", "application/octet-stream")
+	c.Header("Content-Disposition", "attachment; filename=" + strconv.Itoa(int(whDownloadSrv.WarehouseID)) + ".xlsx")
+	c.Header("Content-Transfer-Encoding", "binary")
+
+	//回写到web 流媒体 形成下载
+	_ = xlsx.Write(c.Writer)
+}
+*/
 
 type WarehouseCount struct {
 	NameField string

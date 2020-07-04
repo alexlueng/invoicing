@@ -26,9 +26,8 @@ func FindOneProduct(product_id, com_id int64) (*models.Product, error) {
 
 // 商品采购价格
 type ProductPurchasePrice struct {
-	ProductId   int64  `json:"product_id"`   // 商品id
-	ProductName string `json:"product_name"` // 商品名
-
+	ProductId      int64                    `json:"product_id"`             // 商品id
+	ProductName    string                   `json:"product_name"`           // 商品名
 	SupplierPrices map[int64]SupplierPrices `json:"supplier_product_price"` // 各供应商处采购价
 }
 type SupplierPrices struct {
@@ -78,6 +77,9 @@ func FindProductPurchasePrice(product_id []int64, com_id int64) (map[int64]Produ
 	ProductPrice := make(map[int64]ProductPurchasePrice)
 	filter["com_id"] = com_id
 	filter["is_valid"] = true
+	if len(product_id) == 0 {
+		return nil, errors.New("no product request.")
+	}
 	filter["product_id"] = bson.M{"$in": product_id}
 	cur, err := collection.Find(context.TODO(), filter)
 	if err != nil {
@@ -116,6 +118,7 @@ func FindProductPurchasePrice(product_id []int64, com_id int64) (map[int64]Produ
 }
 
 // 修改库存信息，把库存设置到目标值
+
 func UpdateProductStock(productId int64, stock int64, comId int64) error {
 	collection := models.Client.Collection("product")
 	filter := bson.M{}

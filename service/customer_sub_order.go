@@ -33,7 +33,8 @@ func UpdateSupplierAndWarehouseAmount(subOrderSn string, amountType int64, amoun
 	} else {
 		update["supplier_amount"] = amount
 	}
-	_, err := collection.UpdateOne(context.TODO(), filter, bson.M{"$set": update})
+	// update
+	_, err := collection.UpdateOne(context.TODO(), filter, bson.M{"$inc": update})
 	if err != nil {
 		return err
 	}

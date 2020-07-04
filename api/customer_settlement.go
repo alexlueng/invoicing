@@ -40,38 +40,11 @@ func ListCustomerSettlement(c *gin.Context) {
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	_ = json.Unmarshal(data, &req)
 
-	fmt.Println("View: ", req.View)
-
-	option := options.Find() // 按照req.View的值来进行排序
-	req.Page, req.Size = SetDefaultPageAndSize(req.Page, req.Size)
+	page, size := SetDefaultPageAndSize(req.Page, req.Size)
 
 	// 设置排序主键
-	orderField := []string{"OrderSN", "price"}
-	exist := false
-	fmt.Println("order field: ", req.OrdF)
-	for _, v := range orderField {
-		if req.OrdF == v {
-			exist = true
-			break
-		}
-	}
-	if !exist {
-		req.OrdF = "OrderSN"
-	}
-	// 设置排序顺序 desc asc
-	order := 1
-	fmt.Println("order: ", req.Ord)
-	if req.Ord == "desc" {
-		order = -1
-		req.Ord = "desc"
-	} else {
-		order = 1
-		req.Ord = "asc"
-	}
-
-	option.SetLimit(int64(req.Size))
-	option.SetSkip((int64(req.Page) - 1) * int64(req.Size))
-	option.SetSort(bson.D{{req.OrdF, order}})
+	orderFields := []string{"OrderSN", "price"}
+	option := SetPaginationAndOrder(req.OrdF, orderFields, req.Ord, page, size)
 
 	collection := models.Client.Collection("goods_instance")
 	resData := models.ResponseCustomerSettlementData{}
@@ -83,7 +56,6 @@ func ListCustomerSettlement(c *gin.Context) {
 	case "customer":
 		fmt.Println("customer view")
 		// 先得到所有客户
-
 		CustomerSettlements := make(map[string][]models.GoodsInstance)
 
 		collection := models.Client.Collection("goods_instance")
@@ -148,7 +120,7 @@ func ListCustomerSettlement(c *gin.Context) {
 					detail.UnSettleAmount += 1 // 未结算单数
 					detail.UnSettlement += ins.CustomerPrice * float64(ins.Amount) // 未结算金额
 				case 1:
-					detail.Settling += ins.CustomerPrice * float64(ins.Amount)
+					detail.Settling += ins.CustomerPrice * float64(ins.Amount) // 结算中
 				case 2:
 					detail.Settled += ins.CustomerPrice * float64(ins.Amount) // 已结算金额
 
@@ -159,13 +131,6 @@ func ListCustomerSettlement(c *gin.Context) {
 			result = append(result, detail)
 		}
 
-		//cusChan := make(chan map[string]interface{}, len(cusList))
-		//for name, list := range result {
-		//	fmt.Println(name, list)
-		//
-		//	go CustomerSettlementList(list, cusChan)
-		//
-		//}
 		resData.Result = result
 
 	// 结算单视图
@@ -190,7 +155,7 @@ func ListCustomerSettlement(c *gin.Context) {
 
 		resData.Result = result
 
-	// 默认视图
+	// 默认视图，列出结算的订单实例
 	default:
 		fmt.Println("exec here")
 
@@ -217,8 +182,6 @@ func ListCustomerSettlement(c *gin.Context) {
 		}
 		resData.Result = result
 	}
-
-
 
 	// 返回查询到的总数，总页数
 
@@ -306,12 +269,18 @@ func GenSettlement(c *gin.Context) {
 	cusSettlement.ID = getLastID("customer_settlement")
 	cusSettlement.CustomerName = gs.CustomerName
 	cusSettlement.SettlementSN = GetTempOrderSN()
+
+	if gs.CustomerID == 0 {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "User ID 不能为空",
+		})
+		return
+	}
+
 	cusSettlement.CustomerID = gs.CustomerID
-
 	cusSettlement.CustomerInstance = instanceIDs
-
-	current_time := time.Now()
-	cusSettlement.CreateTime = current_time.Unix()
+	cusSettlement.CreateTime = time.Now().Unix()
 
 	for _, ins := range instanceList {
 		cusSettlement.SettlementAmount += ins.CustomerPrice * float64(ins.Amount)
@@ -327,6 +296,8 @@ func GenSettlement(c *gin.Context) {
 	}
 	fmt.Println("Insert result: ", insertResult.InsertedID)
 
+	setLastID("customer_settlement")
+
 	// 修改商品实例的状态
 	_, err = collection.UpdateMany(context.TODO(),
 		bson.M{"instance_id": bson.M{"$in": instanceIDs}},
@@ -338,17 +309,10 @@ func GenSettlement(c *gin.Context) {
 		return
 	}
 
-
-
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Msg:  "生成结算单成功",
 	})
-	//c.JSON(http.StatusOK, serializer.Response{
-	//	Code: -1,
-	//	Msg:  "生成结算单失败",
-	//})
-
 }
 
 
@@ -360,14 +324,11 @@ func FindSettlementCustomers(c *gin.Context) {
 
 	// TODO: 要带上comID去查询
 	// TODO:支持 搜索，分页
-
-
-
-
 	// 在订单列表中找
 	collection := models.Client.Collection("goods_instance")
 
-	customerIDS, err := collection.Distinct(context.TODO(), "dest_id", bson.M{"status":bson.M{"$eq":3}, "dest_type":bson.M{"$eq":1}})
+	// mongodb去重查询
+	customerIDS, err := collection.Distinct(context.TODO(), "dest_id", bson.M{"com_id": claims.ComId, "status":bson.M{"$eq":3}, "dest_type":bson.M{"$eq":1}})
 	if err != nil {
 		fmt.Println("can't distinct customer: ", err)
 		return
@@ -397,9 +358,7 @@ func FindSettlementCustomers(c *gin.Context) {
 
 func FindOneSettlements(c *gin.Context) {
 
-
 	var req models.CustomerSettlementReq
-
 
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
@@ -445,7 +404,6 @@ func FindOneSettlements(c *gin.Context) {
 				fmt.Println("Can't decode good instance: ",err)
 			}
 			instanceList = append(instanceList, res)
-			//		instanceIDs = append(instanceIDs, res.InstanceId)
 		}
 
 		total, _ := collection.CountDocuments(context.TODO(), filter)
@@ -514,6 +472,7 @@ func FindOneSettlements(c *gin.Context) {
 
 }
 
+// 结算单详情（这个可以放到客户结算单请求列表那里，像客户订单一样）
 func SettlementDetail(c *gin.Context) {
 	// 获取token，解析token获取登录用户信息
 	token := c.GetHeader("Access-Token")
@@ -541,6 +500,12 @@ func SettlementDetail(c *gin.Context) {
 	var instanceList []models.GoodsInstance
 	filter = bson.M{}
 	filter["com_id"] = claims.ComId
+	if len(settlement.CustomerInstance) == 0 {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: -1,
+			Msg:  "No customer instances found",
+		})
+	}
 	filter["instance_id"] = bson.M{"$in": settlement.CustomerInstance}
 
 	cur, err := collection.Find(context.TODO(), filter)
@@ -554,7 +519,6 @@ func SettlementDetail(c *gin.Context) {
 			return
 		}
 		instanceList = append(instanceList, res)
-		//		instanceIDs = append(instanceIDs, res.InstanceId)
 	}
 
 	c.JSON(http.StatusOK, serializer.Response{
@@ -564,6 +528,7 @@ func SettlementDetail(c *gin.Context) {
 	})
 }
 
+// 客户确认结算
 func SettlementConfirm(c *gin.Context) {
 	// 获取token，解析token获取登录用户信息
 	token := c.GetHeader("Access-Token")
@@ -581,13 +546,14 @@ func SettlementConfirm(c *gin.Context) {
 	filter := bson.M{}
 	filter["com_id"] = claims.ComId
 	filter["id"] = gs.SettlementID
+	//
 	var settlement models.CustomerSettlement
 	err := collection.FindOne(context.TODO(), filter).Decode(&settlement)
 	if err != nil {
 		fmt.Println("Can't find customer settlement: ", err)
 		return
 	}
-	//fmt.Println(settlement)
+	// 更新结算单的状态
 	confirmTime := time.Now().Unix()
 	updateResult, err := collection.UpdateOne(context.TODO(), filter, bson.M{
 		"$set" : bson.M{
@@ -598,9 +564,7 @@ func SettlementConfirm(c *gin.Context) {
 		return
 	}
 	fmt.Println("Update customer: ", updateResult.UpsertedID)
-
-
-
+	// 更新结算单中商品实例的状态
 	insCollects := models.Client.Collection("goods_instance")
 	filter = bson.M{}
 	filter["com_id"] = claims.ComId
@@ -610,8 +574,6 @@ func SettlementConfirm(c *gin.Context) {
 	updateResult, err = insCollects.UpdateMany(context.TODO(),
 		bson.M{"instance_id": bson.M{"$in": settlement.CustomerInstance}},
 		bson.M{"$set": bson.M{ "cussettle" : 2,}})
-
-	//updateResult, err = insCollects.UpdateMany(context.TODO(), filter, bson.M{ "$set": bson.M{ "settlement" : 2} })
 
 	if err != nil {
 		fmt.Println("Can't update instances: ", err)
@@ -648,6 +610,7 @@ func SettlementConfirm(c *gin.Context) {
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Msg:  "Find customer's settlement",
+		Data: settlement,
 	})
 
 }
@@ -656,11 +619,13 @@ type DownloadService struct {
 	DestID int64 `json:"dest_id"`
 }
 
+// 将商品实例导出Excel
 func CustomerSettlementDownload(c *gin.Context) {
 
 	// 根据域名得到COMID
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
 
-	// 得到一个结算单ID
 	var id DownloadService
 	if err := c.ShouldBindJSON(&id); err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
@@ -669,9 +634,8 @@ func CustomerSettlementDownload(c *gin.Context) {
 		})
 	}
 
-
 	filter := bson.M{}
-	filter["com_id"] = 1
+	filter["com_id"] = claims.ComId
 	filter["dest_id"] = id.DestID
 
 
@@ -699,10 +663,10 @@ func CustomerSettlementDownload(c *gin.Context) {
 
 	xlsx := excelize.NewFile()
 
-	xlsx.MergeCell("Sheet1", "A1", "N1")
-	xlsx.SetRowHeight("Sheet1", 1, 100)
-	xlsx.SetColWidth("Sheet1", "A", "A", 30)
-	xlsx.SetColWidth("Sheet1", "C", "C", 30)
+	xlsx.MergeCell("Sheet1", "A1", "H1")
+	xlsx.SetRowHeight("Sheet1", 1, 40)
+
+	xlsx.SetColWidth("Sheet1", "F", "F", 30)
 	xlsx.SetColWidth("Sheet1", "G", "G", 30)
 	//设置单元格样式
 	//"fill":{"type":"pattern","color":["#CCFFFF"],
@@ -714,18 +678,18 @@ func CustomerSettlementDownload(c *gin.Context) {
 		fmt.Println(err.Error())
 	}
 
-
 	xlsx.SetCellStyle("Sheet1", "A1", "A1", style)
-	xlsx.SetCellValue("Sheet1", "A1", "XX客户"+ time.Now().Format("20060112") + "结算单")
+	xlsx.SetCellValue("Sheet1", "A1", instances[0].DestTitle + time.Now().Format("2006-01-02") + "结算单")
 
-
-	xlsx.SetCellValue("Sheet1", "A2", "结算单号")
-	xlsx.SetCellValue("Sheet1", "B2", "商品名称")
-	xlsx.SetCellValue("Sheet1", "C2", "联系人")
-	xlsx.SetCellValue("Sheet1", "D2", "售价")
-	xlsx.SetCellValue("Sheet1", "E2", "数量")
-	xlsx.SetCellValue("Sheet1", "F2", "总金额")
-	xlsx.SetCellValue("Sheet1", "G2", "确认状态")
+	//xlsx.SetCellValue("Sheet1", "A2", "结算单号")
+	xlsx.SetCellValue("Sheet1", "A2", "商品名称")
+	xlsx.SetCellValue("Sheet1", "B2", "联系人")
+	xlsx.SetCellValue("Sheet1", "C2", "售价")
+	xlsx.SetCellValue("Sheet1", "D2", "数量")
+	xlsx.SetCellValue("Sheet1", "E2", "总金额")
+	xlsx.SetCellValue("Sheet1", "F2", "下单时间")
+	xlsx.SetCellValue("Sheet1", "G2", "发货时间")
+	xlsx.SetCellValue("Sheet1", "H2", "确认状态")
 
 	var totalPrice float64
 	var totalAmount int64
@@ -735,31 +699,27 @@ func CustomerSettlementDownload(c *gin.Context) {
 		lineNo := i + 3
 		strLineNo := strconv.Itoa(lineNo)
 
-		xlsx.SetCellValue("Sheet1", "A" + strLineNo, item.CusSettleOrderSN)
-		xlsx.SetCellValue("Sheet1", "B" + strLineNo, item.Product)
-		xlsx.SetCellValue("Sheet1", "C" + strLineNo, item.Contacts)
-		xlsx.SetCellValue("Sheet1", "D" + strLineNo, item.CustomerPrice)
-		xlsx.SetCellValue("Sheet1", "E" + strLineNo, item.Amount)
-		xlsx.SetCellValue("Sheet1", "F" + strLineNo, item.CustomerPrice * float64(item.Amount))
+		//xlsx.SetCellValue("Sheet1", "A" + strLineNo, item.CusSettleOrderSN)
+		xlsx.SetCellValue("Sheet1", "A" + strLineNo, item.Product)
+		xlsx.SetCellValue("Sheet1", "B" + strLineNo, item.Contacts)
+		xlsx.SetCellValue("Sheet1", "C" + strLineNo, item.CustomerPrice)
+		xlsx.SetCellValue("Sheet1", "D" + strLineNo, item.Amount)
+		xlsx.SetCellValue("Sheet1", "E" + strLineNo, item.CustomerPrice * float64(item.Amount))
+		xlsx.SetCellValue("Sheet1", "F" + strLineNo, time.Unix(item.OrderTime, 0).Format("2006-01-02 15:04:05")) // time.Unix(timestamp, 0).Format(timeLayout)
+		xlsx.SetCellValue("Sheet1", "G" + strLineNo, time.Unix(item.ShipTime, 0).Format("2006-01-02 15:04:05"))
 		if item.Status == 3 {
-			xlsx.SetCellValue("Sheet1", "G" + strLineNo, "已确认")
+			xlsx.SetCellValue("Sheet1", "H" + strLineNo, "已确认")
 			totalAmount += item.Amount
 			totalPrice += item.CustomerPrice * float64(item.Amount)
 		} else {
-			xlsx.SetCellValue("Sheet1", "G" + strLineNo, "未确认，不计入本次结算")
+			xlsx.SetCellValue("Sheet1", "H" + strLineNo, "未确认，不计入本次结算")
 		}
 	}
 	endLine := strconv.Itoa(len(instances) + 3)
 
-	style, err = xlsx.NewStyle(`{"fill":{"type":"pattern","color":["#FFCCCC"],
-				"pattern":1}}`)
-	if err != nil {
-		fmt.Println(err.Error())
-	}
-	xlsx.SetCellStyle("Sheet1", "D" + endLine, "F" + endLine, style)
-	xlsx.SetCellValue("Sheet1", "D" + endLine, "总计")
-	xlsx.SetCellValue("Sheet1", "E" + endLine, totalAmount)
-	xlsx.SetCellValue("Sheet1", "F" + endLine, totalPrice)
+	xlsx.SetCellValue("Sheet1", "C" + endLine, "总计")
+	xlsx.SetCellValue("Sheet1", "D" + endLine, totalAmount)
+	xlsx.SetCellValue("Sheet1", "E" + endLine, totalPrice)
 
 
 	//保存文件方式

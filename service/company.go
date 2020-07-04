@@ -59,7 +59,7 @@ func UpdateCompany(com_id string, com models.CompanyData) {
 
 }
 
-// 查找费送方式
+// 查找配送方式
 func FindOneDelivery(deliveryId int64, comId int64) (*models.Delivery, error) {
 	collection := models.Client.Collection("delivery")
 	var delivery models.Delivery
