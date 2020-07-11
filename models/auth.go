@@ -1,8 +1,7 @@
 package models
 
 import (
-	"context"
-	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type Auth struct {
@@ -11,12 +10,6 @@ type Auth struct {
 	Password string `json:"password"`
 }
 
-func CheckAuth(username, password string) bool {
-	var auth Auth
-	filter := bson.M{"username": username, "password": password}
-	_ = Client.Collection("auth").FindOne(context.TODO(), filter).Decode(&auth)
-	if auth.ID > 0 {
-		return true
-	}
-	return false
+func getAuthCollection() *mongo.Collection {
+	return Client.Collection("auth")
 }

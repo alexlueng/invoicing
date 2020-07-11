@@ -477,7 +477,7 @@ func SupplierUploadCertificate(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
-			Msg:  "Can't update password",
+			Msg:  "Can't get store path",
 		})
 		return
 	}

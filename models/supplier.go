@@ -36,7 +36,7 @@ func getSupplierCollection() *mongo.Collection {
 
 func (c *Supplier) FindAll(filter bson.M, options *options.FindOptions) ([]Supplier, error) {
 	var result []Supplier
-	cur, err := Client.Collection("supplier").Find(context.TODO(), filter, options)
+	cur, err := getSupplierCollection().Find(context.TODO(), filter, options)
 	if err != nil {
 		//logrus.Error("Can't get customer list")
 		fmt.Println("Can't get supplier list")
@@ -54,7 +54,7 @@ func (c *Supplier) FindAll(filter bson.M, options *options.FindOptions) ([]Suppl
 }
 
 func (c *Supplier) Total(filter bson.M) (int64, error) {
-	total, err := Client.Collection("supplier").CountDocuments(context.TODO(), filter)
+	total, err := getSupplierCollection().CountDocuments(context.TODO(), filter)
 	return total, err
 }
 
@@ -63,7 +63,7 @@ func (c *Supplier) CheckExist() bool {
 	filter["com_id"] = c.ComID
 	filter["supplier_name"] = c.SupplierName
 
-	err := Client.Collection("supplier").FindOne(context.TODO(), filter).Err()
+	err := getSupplierCollection().FindOne(context.TODO(), filter).Err()
 	if err != nil {
 		// 说明没有存在重名
 		return false
@@ -72,7 +72,7 @@ func (c *Supplier) CheckExist() bool {
 }
 
 func (c *Supplier) Insert() error {
-	_, err := Client.Collection("supplier").InsertOne(context.TODO(), c)
+	_, err := getSupplierCollection().InsertOne(context.TODO(), c)
 	if err != nil {
 		return err
 	}
@@ -83,8 +83,7 @@ func (c *Supplier) Delete() error {
 	filter := bson.M{}
 	filter["com_id"] = c.ComID
 	filter["supplier_id"] = c.ID
-	collection := Client.Collection("supplier")
-	_, err := collection.DeleteOne(context.TODO(), filter)
+	_, err := getSupplierCollection().DeleteOne(context.TODO(), filter)
 	if err != nil {
 
 		return err
@@ -98,7 +97,7 @@ func (c *Supplier) UpdateCheck() bool {
 	filter := bson.M{}
 	filter["com_id"] = c.ComID
 	filter["supplier_name"] = c.SupplierName
-	cur, err := Client.Collection("supplier").Find(context.TODO(), filter)
+	cur, err := getSupplierCollection().Find(context.TODO(), filter)
 	if err != nil {
 		fmt.Println("error found decoding supplier: ", err)
 		return false
@@ -122,7 +121,7 @@ func (c *Supplier) Update() error {
 	filter["com_id"] = c.ComID
 	filter["supplier_id"] = c.ID
 	// 更新记录
-	_, err := Client.Collection("supplier").UpdateOne(context.TODO(), filter, bson.M{
+	_, err := getSupplierCollection().UpdateOne(context.TODO(), filter, bson.M{
 		"$set": bson.M{"supplier_name": c.SupplierName,
 			"contacts": c.Contacts,
 			"phone":    c.Phone,
@@ -149,8 +148,7 @@ func (c *Supplier) FindByID(id int64) (*Supplier, error) {
 	filter := bson.M{}
 	filter["com_id"] = c.ComID
 	filter["supplier_id"] = id
-	collection := Client.Collection("supplier")
-	err := collection.FindOne(context.TODO(), filter).Decode(c)
+	err := getSupplierCollection().FindOne(context.TODO(), filter).Decode(c)
 	if err != nil {
 		fmt.Println("inner error: ", err)
 		return nil, err

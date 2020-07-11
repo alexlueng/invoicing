@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
@@ -75,21 +74,12 @@ func CompanyDetail(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	// 指定数据集
-	comCollection := models.Client.Collection("company")
-	domainCollection := models.Client.Collection("domain")
-	deliveryCollection := models.Client.Collection("delivery")
-
 	var company models.Company
-	var domains models.Domain
 	var comInfoResponse ComInfoResponse
-	var delivery models.Delivery
 	var deliverys []models.Delivery
-	filter := bson.M{}
-	filter["com_id"] = claims.ComId
 
 	// 查找公司相应的信息
-	err := comCollection.FindOne(context.TODO(), filter).Decode(&company)
+	_, err := models.SelectCompanyByComID(claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -97,9 +87,9 @@ func CompanyDetail(c *gin.Context) {
 		})
 		return
 	}
+
 	// 获取公司配送信息
-	//
-	cur, err := deliveryCollection.Find(context.TODO(), bson.M{"comid": claims.ComId})
+	deliveryRs, err := models.SelectDeliveryByComID(claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -107,19 +97,11 @@ func CompanyDetail(c *gin.Context) {
 		})
 		return
 	}
-	for cur.Next(context.TODO()) {
-		err = cur.Decode(&delivery)
-		if err != nil {
-			c.JSON(http.StatusOK, serializer.Response{
-				Code: serializer.CodeError,
-				Msg:  "未能找到公司的信息！",
-			})
-			return
-		}
+	for _, delivery := range deliveryRs.Delivery {
 		deliverys = append(deliverys, delivery)
 	}
-	// 获取公司支付信息
 
+	// 获取公司支付信息
 	comInfoResponse.ComName = company.ComName
 	comInfoResponse.Delivery = deliverys //配送方式
 	comInfoResponse.Payment = company.Payment
@@ -133,11 +115,8 @@ func CompanyDetail(c *gin.Context) {
 	comInfoResponse.QRCodeURL = "http://jxc.weqi.exechina.com/#/model-detail"
 	comInfoResponse.ComID = company.ComId
 
-	filter = bson.M{}
-	filter["comid"] = claims.ComId
-
 	// 找到公司下配置的所有域名
-	cur, err = domainCollection.Find(context.TODO(), filter)
+	cur, err := models.SelectDomainByComID(claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -145,15 +124,7 @@ func CompanyDetail(c *gin.Context) {
 		})
 		return
 	}
-	for cur.Next(context.TODO()) {
-		err = cur.Decode(&domains)
-		if err != nil {
-			c.JSON(http.StatusOK, serializer.Response{
-				Code: serializer.CodeError,
-				Msg:  "未能找到公司的信息！",
-			})
-			return
-		}
+	for _, domains := range cur.Domain {
 		comInfoResponse.Domains = append(comInfoResponse.Domains, domains)
 	}
 
@@ -185,10 +156,6 @@ func UpdateCompany(c *gin.Context) {
 		return
 	}
 
-	// 指定数据集
-	comCollection := models.Client.Collection("company")
-	deliveryCollection := models.Client.Collection("delivery")
-
 	// 计量单位、支付方式、职务 去重
 	req.Units = util.RemoveRepeatedElement(req.Units)
 	req.Payment = util.RemoveRepeatedElement(req.Payment)
@@ -196,9 +163,7 @@ func UpdateCompany(c *gin.Context) {
 
 	//更新配送方式
 	if len(req.Delivery) > 0 {
-		_, err := deliveryCollection.UpdateMany(context.TODO(),
-			bson.M{"delivery_id": bson.M{"$in": req.Delivery}, "comid": claims.ComId},
-			bson.M{"$set": bson.M{"is_using": true}})
+		err := models.UpdateDeliveryIsUsingFlag(claims.ComId, req.Delivery, true);
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
 				Code: serializer.CodeError,
@@ -208,9 +173,7 @@ func UpdateCompany(c *gin.Context) {
 		}
 	}
 	if len(req.UnDelivery) > 0 {
-		_, err := deliveryCollection.UpdateMany(context.TODO(),
-			bson.M{"delivery_id": bson.M{"$in": req.UnDelivery}, "comid": claims.ComId},
-			bson.M{"$set": bson.M{"is_using": false}})
+		err := models.UpdateDeliveryIsUsingFlag(claims.ComId, req.UnDelivery, false);
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
 				Code: serializer.CodeError,
@@ -231,9 +194,7 @@ func UpdateCompany(c *gin.Context) {
 	}
 
 	// 更新公司信息
-	_, err = comCollection.UpdateOne(context.TODO(), bson.M{"com_id": claims.ComId}, bson.M{
-		"$set": updateCom,
-	})
+	err = models.UpdateCompanyByComID(claims.ComId, updateCom);
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -257,12 +218,9 @@ func DeliveryList(c *gin.Context) {
 	claims, _ := auth.ParseToken(token)
 
 	// 指定数据集
-	collection := models.Client.Collection("delivery")
-	delivery := models.Delivery{}
 	deliverys := []models.Delivery{}
-	filter := bson.M{}
-	filter["comid"] = claims.ComId
-	cur, err := collection.Find(context.TODO(), filter)
+
+	rs, err := models.SelectDeliveryByComID(claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -270,17 +228,11 @@ func DeliveryList(c *gin.Context) {
 		})
 		return
 	}
-	for cur.Next(context.TODO()) {
-		err = cur.Decode(&delivery)
-		if err != nil {
-			c.JSON(http.StatusOK, serializer.Response{
-				Code: serializer.CodeError,
-				Msg:  "获取配送方式失败！",
-			})
-			return
-		}
+
+	for _, delivery := range rs.Delivery {
 		deliverys = append(deliverys, delivery)
 	}
+
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: serializer.CodeSuccess,
 		Data: deliverys,
@@ -294,12 +246,7 @@ func UnitsList(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	// 指定数据集
-	collection := models.Client.Collection("company")
-	company := models.Company{}
-	filter := bson.M{}
-	filter["com_id"] = claims.ComId
-	err := collection.FindOne(context.TODO(), filter).Decode(&company)
+	company, err := models.SelectCompanyByComID(claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -319,12 +266,7 @@ func PaymentList(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	// 指定数据集
-	collection := models.Client.Collection("company")
-	company := models.Company{}
-	filter := bson.M{}
-	filter["com_id"] = claims.ComId
-	err := collection.FindOne(context.TODO(), filter).Decode(&company)
+	company, err := models.SelectCompanyByComID(claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -344,12 +286,7 @@ func DefaultProfitMargin(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	// 指定数据集
-	collection := models.Client.Collection("company")
-	company := models.Company{}
-	filter := bson.M{}
-	filter["com_id"] = claims.ComId
-	err := collection.FindOne(context.TODO(), filter).Decode(&company)
+	company, err := models.SelectCompanyByComID(claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -363,25 +300,6 @@ func DefaultProfitMargin(c *gin.Context) {
 		Msg:  "获取默认利润率成功！",
 	})
 }
-
-// 以下的几个方法是与另一个服务进行通信的http方法
-// 如果有条件，有机会，会将它们写成rpc的通信方式
-
-// Get content:
-// {"id":30,
-// "module_id":1,
-// "module_name":"进销存",
-// "user_id":6,
-// "admin":"alex",
-// "telephone":"13888888888",
-// "com_id":2,
-// "company_name":"三国进销存",
-// "domains":["4.vip.jxc.weqi.exechina.com"],
-// "price":999,"create_at":1584762307,
-// "last_paid_at":0,
-// "expire_at":1585367107,
-// "using":true,
-// "is_try":true}
 
 type NewInstance struct {
 	ID          int64    `json:"id"`
@@ -410,14 +328,13 @@ func AddSuperAdmin(c *gin.Context) {
 
 	// 添加超级管理员，修改域名表，Company表
 	// TODO:需要修改这个生成方式
-	collection := models.Client.Collection("domain")
 	for _, item := range req.Domains {
 		var domain models.Domain
 		domain.Domain = item
 		domain.ComId = req.ID
 		domain.ModuleId = req.ModuleID
 		domain.Status = true
-		_, err := collection.InsertOne(context.TODO(), domain)
+		err := domain.Add()
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
 				Code: serializer.CodeError,
@@ -426,10 +343,7 @@ func AddSuperAdmin(c *gin.Context) {
 			return
 		}
 	}
-
-	collection = models.Client.Collection("company")
-	var defaultSuperadmin models.Company
-	err := collection.FindOne(context.TODO(), bson.D{{"com_id", 1}}).Decode(&defaultSuperadmin)
+	defaultSuperadmin, err := models.SelectCompanyByComID(1)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -452,7 +366,7 @@ func AddSuperAdmin(c *gin.Context) {
 	admin.Payment = defaultSuperadmin.Payment
 	admin.Position = defaultSuperadmin.Position
 
-	_, err = collection.InsertOne(context.TODO(), admin)
+	err = admin.Add()
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -482,8 +396,7 @@ func UpdateAdminPasswd(c *gin.Context) {
 		return
 	}
 
-	collection := models.Client.Collection("company")
-	_, err := collection.UpdateMany(context.TODO(), bson.D{{"telephone", updateAdmin.Telephone}}, bson.M{"$set": bson.M{"password": updateAdmin.Password}})
+	err := models.UpdateAdminPwdByTelPhone(updateAdmin.Telephone, updateAdmin.Password)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -511,8 +424,7 @@ func ChangeDomainStatus(c *gin.Context) {
 		})
 		return
 	}
-	collection := models.Client.Collection("domain")
-	_, err := collection.UpdateOne(context.TODO(), bson.D{{"comid", d.ComID}}, bson.M{"$set": bson.M{"status": d.Status}})
+	err := models.UpdateDomainStatusByComID(d.ComID, d.Status)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -542,8 +454,7 @@ func UpdateExpireTime(c *gin.Context) {
 		})
 		return
 	}
-	collection := models.Client.Collection("company")
-	_, err := collection.UpdateOne(context.TODO(), bson.D{{"com_id", u.ComID}}, bson.M{"$set": bson.M{"expire_at": u.ExpireAt}})
+	err := models.UpdateCompanyExpireTime(u.ComID, u.ExpireAt)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,

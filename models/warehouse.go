@@ -1,5 +1,7 @@
 package models
 
+import "go.mongodb.org/mongo-driver/mongo"
+
 type Warehouse struct {
 	ID                 int64       `json:"warehouse_id" bson:"warehouse_id"`
 	ComID              int64       `json:"com_id" bson:"com_id"`
@@ -17,13 +19,8 @@ type Warehouse struct {
 	Product            []int64     `json:"product" bson:"product"`      // 有新商品进入仓库，则在这个字段字段商品id
 }
 
-// 仓库职员表
-type WarehouseStuff struct {
-	ComID         int64  `json:"com_id" bson:"com_id"`                 //公司id
-	UserId        int64  `json:"user_id" bson:"user_id"`               // 用户id
-	Username      string `json:"username" bson:"username"`             // 用户名
-	WarehouseId   int64  `json:"warehouse_id" bson:"warehouse_id"`     // 仓库id
-	WarehouseName string `json:"warehouse_name" bson:"warehouse_name"` // 仓库名
+func getWarehouseCollection() *mongo.Collection {
+	return Client.Collection("warehouse")
 }
 
 //用户提交过来的数据

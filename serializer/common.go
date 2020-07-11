@@ -34,11 +34,12 @@ const (
 )
 
 const (
-	CodeError = -1
-	CodeTokenErr = -2
-	CodeSuccess = 200
+	CodeError        = -1
+	CodeTokenErr     = -2
+	CodeMessageErr   = -3
+	CodeSysConfigErr = -4
+	CodeSuccess      = 200
 )
-
 
 // CheckLogin 检查登录
 func CheckLogin() Response {

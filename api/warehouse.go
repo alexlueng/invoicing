@@ -18,14 +18,13 @@ import (
 	"jxc/models"
 	"jxc/serializer"
 	"net/http"
-
 )
 
 // 仓库名和仓库地址是否可以重复
 const ENABLESAMEWAREHOUSE = false
 
 func AllWarehouses(c *gin.Context) {
-	// 获取token，解析token获取登录用户信息
+
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
@@ -35,7 +34,7 @@ func AllWarehouses(c *gin.Context) {
 	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "参数解释错误",
 		})
 		return
@@ -130,9 +129,7 @@ func AllWarehouses(c *gin.Context) {
 	}
 
 	// 每个查询都要带着com_id
-	//com_id, _ := strconv.Atoi(com.ComId)
 	filter["com_id"] = claims.ComId
-	// all conditions are set then start searching
 	collection := models.Client.Collection(("warehouse"))
 	cur, err := collection.Find(context.TODO(), filter, option)
 	if err != nil {
@@ -169,20 +166,7 @@ func AllWarehouses(c *gin.Context) {
 	var total int64
 	total, _ = models.Client.Collection("warehouse").CountDocuments(context.TODO(), filter)
 
-	//var wh_stuffs []models.Stuff
-	//collection = models.Client.Collection("users")
-	//cur, _ = collection.Find(context.TODO(), bson.D{})
-	//for cur.Next(context.TODO()) {
-	//	var result models.Stuff
-	//	if err := cur.Decode(&result); err != nil {
-	//		fmt.Println("error while decoding recording: ", err)
-	//		return
-	//	}
-	//	wh_stuffs = append(wh_stuffs, result)
-	//}
-
 	resData := models.ResponseWarehouseData{}
-	//resData.Warehouses = wh_stuffs
 	resData.Warehouses = warehouses
 	resData.Total = int(total)
 	resData.Pages = int(total)/int(req.Size) + 1
@@ -199,13 +183,12 @@ func AllWarehouses(c *gin.Context) {
 
 // 创建仓库提交的数据
 type ReqWarehouse struct {
-	ID      int64  `json:"warehouse_id" form:"warehouse_id"`
-	Name    string `json:"warehouse_name" form:"warehouse_name"`
-	Address string `json:"warehouse_address" form:"warehouse_address"`
-	Manager int64  `json:"wh_manager" form:"wh_manager"`
-	Config  string `json:"config" form:"config"`
-	//仓库员工
-	Stuffs []int64 `json:"stuffs" form:"stuff[]"`
+	ID      int64   `json:"warehouse_id" form:"warehouse_id"`
+	Name    string  `json:"warehouse_name" form:"warehouse_name"`
+	Address string  `json:"warehouse_address" form:"warehouse_address"`
+	Manager int64   `json:"wh_manager" form:"wh_manager"`
+	Config  string  `json:"config" form:"config"`
+	Stuffs  []int64 `json:"stuffs" form:"stuff[]"`
 }
 
 func AddWarehouse(c *gin.Context) {
@@ -577,7 +560,6 @@ func WarehouseDetail(c *gin.Context) {
 
 	// 组装搜索条件
 
-
 	// 根据product字段，去获取库存信息
 	// TODO：通过仓库商品库存表来取
 	warehouseProduct, err := service.GetProductInfoOfWarehouse(warehouse.Product[0], claims.ComId, req.WarehouseId)
@@ -598,7 +580,7 @@ func WarehouseDetail(c *gin.Context) {
 }
 
 type WhDownloadService struct {
-	WarehouseID int64 `json:"warehouse_id"`
+	WarehouseID int64   `json:"warehouse_id"`
 	ProductIDs  []int64 `json:"product_ids"`
 }
 

@@ -1,5 +1,7 @@
 package models
 
+import "go.mongodb.org/mongo-driver/mongo"
+
 // mongo中数据表字段维护在代码中
 // 售价管理表
 type CustomerProductPrice struct {
@@ -12,6 +14,10 @@ type CustomerProductPrice struct {
 	CreateAt     int64   `json:"create_at" bson:"create_at"`
 	IsValid      bool    `json:"is_valid" bson:"is_valid"`
 	DefaultPrice float64 `json:"default_price" bson:"omitempty"`
+}
+
+func getCustomerProductPriceCollection() *mongo.Collection {
+	return Client.Collection("customer_product_price")
 }
 
 type CustomerProductPriceReq struct {

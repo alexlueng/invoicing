@@ -31,7 +31,7 @@ func StockMessage(product models.Product, comID int64) {
 
 	// 只生成一条提醒消息，让有权限的人查看即可
 	var message models.Message
-	message.ID = getLastID("message")
+	message.ID = GetLastID("message")
 	message.ComID = comID
 	message.Type = int64(messageType)
 	message.Title = "库存不足提醒"
@@ -45,7 +45,7 @@ func StockMessage(product models.Product, comID int64) {
 		fmt.Println("Can't insert stock message: ", err)
 		return
 	}
-	_ = setLastID("message")
+	_ = SetLastID("message")
 }
 
 type Counts struct {
@@ -53,7 +53,7 @@ type Counts struct {
 	Count     int64
 }
 
-func getLastID(field_name string) int64 {
+func GetLastID(field_name string) int64 {
 	var c Counts
 	collection := models.Client.Collection("counters")
 	err := collection.FindOne(context.TODO(), bson.D{{"name", field_name}}).Decode(&c)
@@ -66,7 +66,7 @@ func getLastID(field_name string) int64 {
 	return c.Count + 1
 }
 
-func setLastID(field_name string) error {
+func SetLastID(field_name string) error {
 	collection := models.Client.Collection("counters")
 	updateResult, err := collection.UpdateOne(context.TODO(), bson.D{{"name", field_name}}, bson.M{"$inc": bson.M{"count": 1}})
 	if err != nil {

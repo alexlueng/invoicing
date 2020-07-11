@@ -1064,7 +1064,7 @@ func AddPurchaseOrder(c *gin.Context) {
 func SupplierMessage() {
 	// TODO：生成一条供应商订单消息，插入到消息表中，通过微信公众号发送给供应商
 	/*	var message models.MessageForClient
-		message.ID = getLastID("client_message")
+		message.ID = GetLastID("client_message")
 		message.ComID = claims.ComId
 		message.Client = 2 // 2代表的是供应商
 		message.ClientID = supplier.ID
@@ -1137,7 +1137,7 @@ func SplitSupplierSubOrder(c *gin.Context) {
 	newSubOrder := oldSubOrder
 	newSubOrder.CreateAt = time.Now().Unix()
 	newSubOrder.ProductNum = sos.Num
-	newSubOrder.SubOrderId = getLastID("supplier_sub_order")
+	newSubOrder.SubOrderId = GetLastID("supplier_sub_order")
 	subSn_str, _ := util.GetOrderSN(newSubOrder.ComID)
 	newSubOrder.SubOrderSn = subSn_str
 	newSubOrder.State = 2 // 拆出来的单的状态是已收货
@@ -1150,7 +1150,7 @@ func SplitSupplierSubOrder(c *gin.Context) {
 		})
 		return
 	}
-	setLastID("supplier_sub_order")
+	SetLastID("supplier_sub_order")
 
 	// 更新原订单未接收的数量
 	_, err = collection.UpdateOne(context.TODO(), bson.D{{"com_id", claims.ComId},

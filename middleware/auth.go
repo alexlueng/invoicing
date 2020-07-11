@@ -7,6 +7,7 @@ import (
 	"jxc/models"
 	"jxc/serializer"
 	"jxc/service"
+	"jxc/util"
 	"net/http"
 	"strings"
 	"time"
@@ -25,7 +26,8 @@ func CheckAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.GetHeader("Access-Token")
 		url := c.Request.URL.String()
-		if url == "/api/v1/login" || url == "/add_superadmin" || url == "/api/v1/supplier/mobile/login" {
+		util.Log().Info("request url: ", url)
+		if url == "/api/v1/login" || url == "/add_superadmin" || url == "/api/v1/supplier/mobile/login" || strings.Index(url, "wxapp") != -1 || strings.Index(url, "wx") != -1 {
 			c.Next()
 			return
 		}

@@ -21,13 +21,13 @@ type ReqLogin struct {
 
 // 登录
 func Login(c *gin.Context) {
-	// 获取请求的域名，可以得知所属公司
 
+	// 获取请求的域名，可以得知所属公司
 	domain := c.Request.Header.Get("Origin")
 	com, err := models.GetComIDAndModuleByDomain(domain[len("http://"):])
 		if err != nil || models.THIS_MODULE != com.ModuleId {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return

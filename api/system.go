@@ -18,6 +18,10 @@ type SystemConfig struct {
 	UnreadMessage int64 `json:"unread_message" bson:"unread_message"`
 }
 
+type SystemExpireDate struct {
+	ExpireDate int64 `json:"expire_date"`
+}
+
 func GetExpireDate(c *gin.Context) {
 
 	claims, ok := c.Get("claims")
@@ -33,7 +37,7 @@ func GetExpireDate(c *gin.Context) {
 	err := collection.FindOne(context.TODO(), bson.D{{"com_id", claims.(*auth.Claims).ComId}}).Decode(&sysConf)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: serializer.CodeError,
+			Code: serializer.CodeSysConfigErr	,
 			Msg:  "Can't get system config",
 		})
 		return
@@ -53,10 +57,6 @@ func getExpireDateFromSystem(com_id int64) (int64, error) {
 		return 0, err
 	}
 	return sysConf.ExpireDate, nil
-}
-
-type SystemExpireDate struct {
-	ExpireDate int64 `json:"expire_date"`
 }
 
 // 设置发货提醒时间

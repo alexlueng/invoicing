@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -12,19 +13,23 @@ import (
 type Customer struct {
 	ID             int64   `json:"customer_id" bson:"customer_id"`
 	ComID          int64   `json:"com_id" bson:"com_id"`
-	Name           string  `json:"customer_name" form:"customer_name"`
-	LevelID        int64   `json:"level" form:"level"`
-	Payment        string  `json:"payment" form:"payment"`
-	PayAmount      float64 `json:"paid" form:"paid" bson:"paid"`
-	Receiver       string  `json:"receiver" form:"receiver"`
-	Address        string  `json:"receiver_address" form:"address" bson:"receiver_address"`
-	Phone          string  `json:"receiver_phone" form:"phone" bson:"receiver_phone"`
+	Name           string  `json:"customer_name" bson:"name"`
+	LevelID        int64   `json:"level" bson:"level"`
+	Payment        string  `json:"payment" bson:"payment"`
+	PayAmount      float64 `json:"paid" bson:"paid"`
+	Receiver       string  `json:"receiver" bson:"receiver"`
+	Address        string  `json:"receiver_address" bson:"receiver_address"`
+	Phone          string  `json:"receiver_phone" bson:"receiver_phone"`
 	LastSettlement int64   `json:"last_settlement" bson:"last_settlement"` // 上次结算时间
+}
+
+func getCustomerCollection() *mongo.Collection {
+	return Client.Collection("customer")
 }
 
 func (c *Customer) FindAll(filter bson.M, options *options.FindOptions) ([]Customer, error) {
 	var result []Customer
-	cur, err := Client.Collection("customer").Find(context.TODO(), filter, options)
+	cur, err := getCustomerCollection().Find(context.TODO(), filter, options)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +44,7 @@ func (c *Customer) FindAll(filter bson.M, options *options.FindOptions) ([]Custo
 }
 
 func (c *Customer) Total(filter bson.M) (int64, error) {
-	total, err := Client.Collection("customer").CountDocuments(context.TODO(), filter)
+	total, err := getCustomerCollection().CountDocuments(context.TODO(), filter)
 	return total, err
 }
 
@@ -48,7 +53,7 @@ func (c *Customer) CheckExist() bool {
 	filter["com_id"] = c.ComID
 	filter["name"] = c.Name
 
-	err := Client.Collection("customer").FindOne(context.TODO(), filter).Err()
+	err := getCustomerCollection().FindOne(context.TODO(), filter).Err()
 	if err != nil {
 		// 说明没有存在重名
 		return false
@@ -57,7 +62,7 @@ func (c *Customer) CheckExist() bool {
 }
 
 func (c *Customer) Insert() error {
-	_, err := Client.Collection("customer").InsertOne(context.TODO(), c)
+	_, err := getCustomerCollection().InsertOne(context.TODO(), c)
 	if err != nil {
 		return err
 	}
@@ -70,7 +75,7 @@ func (c *Customer) UpdateCheck() bool {
 	filter := bson.M{}
 	filter["com_id"] = c.ComID
 	filter["name"] = c.Name
-	cur, err := Client.Collection("customer").Find(context.TODO(), filter)
+	cur, err := getCustomerCollection().Find(context.TODO(), filter)
 	if err != nil {
 		return false
 	}
@@ -93,7 +98,7 @@ func (c *Customer) Update() error {
 	filter["com_id"] = c.ComID
 	filter["customer_id"] = c.ID
 	// 更新记录
-	_, err := Client.Collection("customer").UpdateOne(context.TODO(), filter, bson.M{
+	_, err := getCustomerCollection().UpdateOne(context.TODO(), filter, bson.M{
 		"$set": bson.M{"name": c.Name,
 			"receiver":         c.Receiver,
 			"receiver_phone":   c.Phone,
@@ -110,8 +115,7 @@ func (c *Customer) Delete() error {
 	filter := bson.M{}
 	filter["com_id"] = c.ComID
 	filter["customer_id"] = c.ID
-	collection := Client.Collection("customer")
-	_, err := collection.DeleteOne(context.TODO(), filter)
+	_, err := getCustomerCollection().DeleteOne(context.TODO(), filter)
 	if err != nil {
 
 		return err
@@ -123,8 +127,7 @@ func (c *Customer) FindByID(id int64) (*Customer, error) {
 	filter := bson.M{}
 	filter["com_id"] = c.ComID
 	filter["customer_id"] = id
-	collection := Client.Collection("customer")
-	err := collection.FindOne(context.TODO(), filter).Decode(c)
+	err := getCustomerCollection().FindOne(context.TODO(), filter).Decode(c)
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +148,7 @@ type CustReq struct {
 
 type ResponseCustomerData struct {
 	Customers   []Customer `json:"customers"`
+	Levels      []Level    `json:"levels"`
 	Total       int64      `json:"total"`
 	Pages       int64      `json:"pages"`
 	Size        int64      `json:"size"`

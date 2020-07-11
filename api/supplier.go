@@ -101,7 +101,7 @@ func AddSuppliers(c *gin.Context) {
 			return
 		}
 	}
-	supplier.ID = getLastID("supplier")
+	supplier.ID = GetLastID("supplier")
 	supplier.SupplyList = []int64{}
 
 	// 设置供应商初始密码
@@ -130,7 +130,7 @@ func AddSuppliers(c *gin.Context) {
 		})
 		return
 	}
-	setLastID("supplier")
+	SetLastID("supplier")
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: serializer.CodeSuccess,
 		Msg:  "Supplier create succeeded",

@@ -17,6 +17,10 @@ type UserMessageService struct {
 	UserID int64 `json:"user_id"`
 }
 
+type MessageSrv struct {
+	MessageID int64 `json:"message_id"`
+}
+
 // 用户一登录系统就会去查message表，返回消息列表
 // TODO：应该按时间倒序来排序
 // TODO：消息列表应该可以分页，可以选择未读
@@ -31,32 +35,29 @@ func MessageList(c *gin.Context) {
 
 	cur, err := collection.Find(context.TODO(), bson.D{{"com_id", claims.ComId}})
 	if err != nil {
-		fmt.Println("Can't find messages")
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: 200,
+			Code: serializer.CodeMessageErr,
 			Msg:  err.Error(),
-			Data: lists,
 		})
 		return
 	}
 	for cur.Next(context.TODO()) {
 		var res models.Message
 		if err := cur.Decode(&res); err != nil {
-			fmt.Println("Can't decode message: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeMessageErr,
+				Msg:  err.Error(),
+			})
 			return
 		}
 		lists = append(lists, res)
 	}
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Get user messages",
 		Data: lists,
 	})
 	return
-}
-
-type MessageSrv struct {
-	MessageID int64 `json:"message_id"`
 }
 
 // message details
@@ -156,9 +157,8 @@ func OrderMessages(c *gin.Context) {
 	expire_date, err := getExpireDateFromSystem(claims.ComId) // 过期时间，超过这个时间的话就生成提醒消息
 	if err != nil { // 没有设置过期时间，返回空列表
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: serializer.CodeError,
+			Code: serializer.CodeMessageErr,
 			Msg:  "No user messages",
-			Data: 0,
 		})
 		return
 	}
@@ -238,7 +238,7 @@ func OrderMessages(c *gin.Context) {
 
 	for _, instance := range instances {
 		var message models.Message
-		message.ID = getLastID("message")
+		message.ID = GetLastID("message")
 		message.ComID = instance.ComID
 		message.Type = int64(messageType)
 		message.Title = t.Name
@@ -250,7 +250,7 @@ func OrderMessages(c *gin.Context) {
 		message.NotifyWay = "web"
 		message.CreateAt = time.Now().Unix()
 
-		setLastID("message")
+		SetLastID("message")
 		messageList = append(messageList, message)
 
 	}
@@ -344,7 +344,7 @@ func OrderNotify(status int, expireDay int, messType int, filterTime string, ord
 
 	for _, instance := range instances {
 		var message models.Message
-		message.ID = getLastID("message")
+		message.ID = GetLastID("message")
 		// 这是错误的代码
 		// 超级管理员创建的订单的create_by也会有值，就区分不了是哪一个用户
 		// 如果是超级管理员创建的订单，create_by置为0
@@ -361,7 +361,7 @@ func OrderNotify(status int, expireDay int, messType int, filterTime string, ord
 		message.NotifyWay = "web"
 		message.CreateAt = time.Now().Unix()
 
-		setLastID("message")
+		SetLastID("message")
 		messageList = append(messageList, message)
 
 	}

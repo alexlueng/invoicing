@@ -141,7 +141,7 @@ func AddCustomerOrder(c *gin.Context) {
 
 	//这里需要一个订单号生成方法，日期加上6位数的编号,这个订单编号应该是全局唯一的
 	order.OrderSN = GetTempOrderSN()
-	order.OrderId = getLastID("customer_order")
+	order.OrderId = GetLastID("customer_order")
 	order.ComID = claims.ComId
 
 	// 创建订单的时间，以int64的类型插入到mongodb
@@ -161,7 +161,7 @@ func AddCustomerOrder(c *gin.Context) {
 		})
 		return
 	}
-	err = setLastID("customer_order")
+	err = SetLastID("customer_order")
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -178,7 +178,7 @@ func AddCustomerOrder(c *gin.Context) {
 		result.ComID = claims.ComId
 
 		subSn_str, _ := util.GetOrderSN(result.ComID)
-		result.SubOrderId =getLastID("sub_order")
+		result.SubOrderId =GetLastID("sub_order")
 		result.SubOrderSn = subSn_str
 		result.OrderId = order.OrderId
 
@@ -196,7 +196,7 @@ func AddCustomerOrder(c *gin.Context) {
 		result.IsPrepare = false // 备货未完成
 
 		subOrders = append(subOrders, result)
-		setLastID("sub_order")
+		SetLastID("sub_order")
 	}
 
 	_, err = collection.InsertMany(context.TODO(), subOrders)

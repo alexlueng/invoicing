@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -17,89 +16,77 @@ import (
 
 const ENABLESAMEPRODUCT = false
 
+type ProductService struct {
+	ID int64 `json:"product_id"`
+}
+
+// 供应商价格表
+type ProductPrice struct {
+	ProductID  int64   `json:"product_id" bson:"product_id"`
+	Product    string  `json:"product" bson:"product"`
+	SupplierID int64   `json:"supplier_id" bson:"supplier_id"`
+	Supplier   string  `json:"supplier" bson:"supplier"`
+	Price      float64 `json:"price" bson:"price"`
+}
+
+type SupplierListService struct {
+	ProductList []int64 `json:"products"`
+}
+
+type SupplierPriceOfProduct struct {
+	Supplier models.Supplier `json:"supplier"`
+	Price    float64         `json:"price"`
+}
+
+type ProductReq struct {
+	ProductID    int64      `json:"product_id"`
+	Product      string     `json:"product"`
+	Units        string     `json:"units"`
+	DefaultPrice float64    `json:"default_price"`
+	Category     int64      `json:"cat_id"`
+	URLs         []ImageURL `json:"urls"`
+	Tags         []string   `json:"tags"`      // 商品标签
+	Preferred    bool       `json:"preferred"` // 是否优选
+	Recommand    bool       `json:"recommand"` // 是否推荐
+}
+
 func AllProducts(c *gin.Context) {
-	//根据域名得到com_id
+
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	var products []models.Product
-	var req models.ProductReq
-
+	var (
+		products []models.Product
+		req      models.ProductReq
+	)
 	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "参数解释错误",
 		})
 		return
 	}
 
 	req.Page, req.Size = SetDefaultPageAndSize(req.Page, req.Size)
-
 	// 设置排序主键
 	orderField := []string{"product_id", "com_id", "product"}
-	exist := false
-	fmt.Println("order field: ", req.OrdF)
-	for _, v := range orderField {
-		if req.OrdF == v {
-			exist = true
-			break
-		}
-	}
-	if !exist {
-		req.OrdF = "product_id"
-	}
-	// 设置排序顺序 desc asc
-	order := 1
-	fmt.Println("order: ", req.Ord)
-	if req.Ord == "desc" {
-		order = -1
-		req.Ord = "desc"
-	} else {
-		order = 1
-		req.Ord = "asc"
-	}
+	option := SetPaginationAndOrder(req.OrdF, orderField, req.Ord, req.Page, req.Size)
 
-	option := options.Find()
-	option.SetLimit(int64(req.Size))
-	option.SetSkip((int64(req.Page) - 1) * int64(req.Size))
-
-	//1从小到大,-1从大到小
-	option.SetSort(bson.D{{req.OrdF, order}})
-
-	//IdMin,IdMax
-	if req.IdMin > req.IdMax {
-		t := req.IdMax
-		req.IdMax = req.IdMin
-		req.IdMin = t
-	}
 	filter := bson.M{}
-	if (req.IdMin == req.IdMax) && (req.IdMin != 0) {
-		//filter["id"] = bson.M{"$gte":0}
-		filter["id"] = bson.M{"$eq": req.IdMin}
-	} else {
-		if req.IdMin > 0 {
-			filter["id"] = bson.M{"$gte": req.IdMin}
-		}
-		if req.IdMax > 0 {
-			filter["id"] = bson.M{"$lt": req.IdMax}
-		}
-	}
-	// Product string `form:"Product"` //模糊搜索
+
 	if req.Product != "" {
 		filter["product"] = bson.M{"$regex": req.Product}
 	}
 
-	// 每个查询都要带着com_id去查
 	filter["com_id"] = claims.ComId
 
 	collection := models.Client.Collection("product")
 	cur, err := collection.Find(context.TODO(), filter, option)
 	if err != nil {
-		fmt.Println("can't find products")
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "参数解释错误",
+			Code: serializer.CodeError,
+			Msg:  "Can't find products",
 		})
 		return
 	}
@@ -107,10 +94,9 @@ func AllProducts(c *gin.Context) {
 		var result models.Product
 		err := cur.Decode(&result)
 		if err != nil {
-			fmt.Println("can't decoding products: ", err)
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
-				Msg:  "参数解释错误",
+				Code: serializer.CodeError,
+				Msg:  "Can't decode products",
 			})
 			return
 		}
@@ -123,16 +109,41 @@ func AllProducts(c *gin.Context) {
 		total++
 	}
 
+	// 返回商品图片
+	productImages := make(map[int64][]models.Image)
+	collection = models.Client.Collection("image")
+	for _, product := range products {
+
+		cur, err := collection.Find(context.TODO(), bson.D{{"com_id", claims.ComId}, {"product_id", product.ProductID}})
+		if err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't find images",
+			})
+			return
+		}
+		for cur.Next(context.TODO()) {
+			var image models.Image
+			if err := cur.Decode(&image); err != nil {
+				c.JSON(http.StatusOK, serializer.Response{
+					Code: serializer.CodeError,
+					Msg:  "Can't decode images",
+				})
+				return
+			}
+			productImages[product.ProductID] = append(productImages[product.ProductID], image)
+		}
+	}
+
 	// 返回所有的供应商
 	var productSuppliers []models.ProductSupplier
 	cur, _ = models.Client.Collection("supplier").Find(context.TODO(), filter)
 	for cur.Next(context.TODO()) {
 		var result models.ProductSupplier
 		if err := cur.Decode(&result); err != nil {
-			fmt.Println("can't decoding supplier")
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
-				Msg:  "参数解释错误",
+				Code: serializer.CodeError,
+				Msg:  "Can't decode suppliers",
 			})
 			return
 		}
@@ -142,7 +153,7 @@ func AllProducts(c *gin.Context) {
 	// 返回查询到的总数，总页数
 	resData := models.ResponseProductData{}
 	resData.Products = products
-	//resData.Suppliers = productSuppliers
+	resData.ProductImages = productImages
 	resData.Total = int(total)
 	resData.Pages = int(total)/int(req.Size) + 1
 	resData.Size = int(req.Size)
@@ -156,7 +167,6 @@ func AllProducts(c *gin.Context) {
 
 }
 
-
 // 商品应该和供应商联系在一起
 // 获取供应商以及供应商的价格
 // 在供应商表中添加对应的商品信息
@@ -165,14 +175,11 @@ func AddProduct(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	data, _ := ioutil.ReadAll(c.Request.Body)
-	var product models.Product
-
-	err := json.Unmarshal(data, &product)
-	if err != nil {
+	var req ProductReq
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
-			Msg:  "添加商品失败",
+			Msg:  "params error",
 		})
 		return
 	}
@@ -192,9 +199,14 @@ func AddProduct(c *gin.Context) {
 			return
 		}
 	}
-
-	product.ProductID = getLastID("product")
+	var product models.Product
+	product.ProductID = GetLastID("product")
+	product.Product = req.Product
 	product.ComID = claims.ComId
+	product.Units = req.Units
+	product.Tags = req.Tags
+	product.CatID = req.Category
+	product.DefaultPrice = req.DefaultPrice
 
 	product.SupPrice = []int64{}
 	product.CusPrice = []int64{}
@@ -205,13 +217,35 @@ func AddProduct(c *gin.Context) {
 	//default_margin := company.DefaultProfitMargin
 	//product.DefaultPrice += product.DefaultPrice * float64(default_margin) / 100
 
-	_, err = collection.InsertOne(context.TODO(), product)
+	_, err := collection.InsertOne(context.TODO(), product)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
 			Msg:  "添加商品失败",
 		})
 		return
+	}
+
+	// 将图片保存到图片表中
+	collection = models.Client.Collection("image")
+	for _, url := range req.URLs {
+		image := models.Image{
+			ComID:     claims.ComId,
+			ProductID: product.ProductID,
+			ImageID:   GetLastID("image"),
+			LocalPath: url.LocalURL,
+			CloudPath: url.CloudURL,
+			IsDelete:  false,
+		}
+		_, err := collection.InsertOne(context.TODO(), image)
+		if err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Insert image error",
+			})
+			return
+		}
+		SetLastID("image")
 	}
 
 	// 把商品的默认记录存到客户商品价格表中
@@ -233,7 +267,7 @@ func AddProduct(c *gin.Context) {
 		})
 		return
 	}
-	setLastID("product")
+	SetLastID("product")
 
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: serializer.CodeSuccess,
@@ -244,12 +278,27 @@ func AddProduct(c *gin.Context) {
 
 // 更新商品需要修改三张表：product customer_product_price supplier_product_price
 func UpdateProduct(c *gin.Context) {
+
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	updateProduct := models.Product{}
-	data, _ := ioutil.ReadAll(c.Request.Body)
-	_ = json.Unmarshal(data, &updateProduct)
+	var req ProductReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "params error",
+		})
+		return
+	}
+
+	var updateProduct models.Product
+
+	updateProduct.ProductID = req.ProductID
+	updateProduct.Product = req.Product
+	updateProduct.DefaultPrice = req.DefaultPrice
+	updateProduct.Units = req.Units
+	updateProduct.Tags = req.Tags
+	updateProduct.CatID = req.Category
 
 	// 更新的条件：更改的时候如果有同名的记录，则要判断是否有与要修改的记录的customer_id相等,如果有不相等的，则返回
 	// 如果只有相等的customer_id, 则允许修改
@@ -272,14 +321,14 @@ func UpdateProduct(c *gin.Context) {
 		err := cur.Decode(&tempRes)
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
-				Msg:  "参数解释错误",
+				Code: serializer.CodeError,
+				Msg:  "decode product error",
 			})
 			return
 		}
 		if tempRes.ProductID != updateProduct.ProductID {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  "要修改的商品已经存在",
 			})
 			return
@@ -289,7 +338,10 @@ func UpdateProduct(c *gin.Context) {
 	var oldRecord models.Product
 	err = collection.FindOne(context.TODO(), filter).Decode(&oldRecord)
 	if err != nil {
-		fmt.Print("Can not find old product: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "decode product error",
+		})
 		return
 	}
 
@@ -307,7 +359,10 @@ func UpdateProduct(c *gin.Context) {
 
 		err := cusProPriceCollects.FindOne(context.TODO(), filter).Decode(&oldRecord)
 		if err != nil {
-			fmt.Println("can't find old record: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "decode product error",
+			})
 			return
 		}
 
@@ -315,21 +370,25 @@ func UpdateProduct(c *gin.Context) {
 		newRecord.Price = updateProduct.DefaultPrice
 
 		// 将旧记录设为false
-		updateResult, err := cusProPriceCollects.UpdateOne(context.TODO(), filter, bson.M{
+		_, err = cusProPriceCollects.UpdateOne(context.TODO(), filter, bson.M{
 			"$set": bson.M{"is_valid": false}})
 		if err != nil {
-			fmt.Println("Can't update old record: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't find old record",
+			})
 			return
 		}
-		fmt.Println("update old record: ", updateResult.UpsertedID)
 
 		// 加入一条新记录
-		insertResult, err := cusProPriceCollects.InsertOne(context.TODO(), newRecord)
+		_, err = cusProPriceCollects.InsertOne(context.TODO(), newRecord)
 		if err != nil {
-			fmt.Println("Can't not insert new record: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't insert new record",
+			})
 			return
 		}
-		fmt.Println("insert new record: ", insertResult.InsertedID)
 	}
 
 	filter = bson.M{}
@@ -341,10 +400,12 @@ func UpdateProduct(c *gin.Context) {
 			"num":           updateProduct.Num,
 			"units":         updateProduct.Units,
 			"urls":          updateProduct.URLS,
-			"default_price": updateProduct.DefaultPrice}})
+			"default_price": updateProduct.DefaultPrice,
+			"tags":          updateProduct.Tags,
+			"cat_id":        updateProduct.CatID,}})
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "更新失败",
 		})
 		return
@@ -352,48 +413,124 @@ func UpdateProduct(c *gin.Context) {
 
 	// update customer_product_price
 	collection = models.Client.Collection("customer_product_price")
-	collection.UpdateOne(context.TODO(), filter, bson.M{
+	_, err = collection.UpdateOne(context.TODO(), filter, bson.M{
 		"$set": bson.M{
 			"product_name": updateProduct.Product,}})
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Can't update customer price",
+		})
+		return
+	}
 
 	// update supplier_product_price
 	collection = models.Client.Collection("supplier_product_price")
-	collection.UpdateMany(context.TODO(), filter, bson.M{
+	_, err = collection.UpdateMany(context.TODO(), filter, bson.M{
 		"$set": bson.M{
 			"product": updateProduct.Product,}})
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Can't update supplier price",
+		})
+		return
+	}
 
-	//fmt.Println("Update result: ", result)
+	// update images
+	collection = models.Client.Collection("image")
+	for _, url := range req.URLs {
+		if url.ProductID == 0 {
+			image := models.Image{
+				ComID:     claims.ComId,
+				ProductID: req.ProductID,
+				ImageID:   GetLastID("image"),
+				LocalPath: url.LocalURL,
+				CloudPath: url.CloudURL,
+				IsDelete:  false,
+			}
+			_, err := collection.InsertOne(context.TODO(), image)
+			if err != nil {
+				c.JSON(http.StatusOK, serializer.Response{
+					Code: serializer.CodeError,
+					Msg:  "Can't insert image",
+				})
+				return
+			}
+			SetLastID("image")
+		}
+	}
+
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Msg:  "Product update succeeded",
 	})
 }
 
-type ProductService struct {
-	ID int64 `json:"product_id"`
-}
-
 // 删除商品要更新四个表：
 // 1, product
 // 2, customer_product_price和supplier_product_price表中将此商品的is_valid字段置为false
 // 3，supplier表中supply_list中有这个商品id的值去掉
+// 4, 将上传的图片删掉
 func DeleteProduct(c *gin.Context) {
-	// 根据域名得到com_id
+
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	var d ProductService
-
+	var (
+		d       ProductService
+		product models.Product
+	)
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	_ = json.Unmarshal(data, &d)
 
 	filter := bson.M{}
-
 	filter["com_id"] = claims.ComId
 	filter["product_id"] = d.ID
 	collection := models.Client.Collection("product")
 
-	_, err := collection.DeleteOne(context.TODO(), filter)
+	err := collection.FindOne(context.TODO(), filter).Decode(&product)
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Can't find product",
+		})
+		return
+	}
+
+	//删除商品图片（云上的以及本地的）
+	collection = models.Client.Collection("image")
+	filter = bson.M{}
+	filter["com_id"] = claims.ComId
+	filter["product_id"] = product.ProductID
+	cur, err := collection.Find(context.TODO(), filter)
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Can't find product",
+		})
+		return
+	}
+
+	for cur.Next(context.TODO()) {
+		var res models.Image
+		if err := cur.Decode(&res); err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't decode image",
+			})
+			return
+		}
+		if err := deleteImage(res); err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't delete image",
+			})
+			return
+		}
+	}
+
+	_, err = collection.DeleteOne(context.TODO(), filter)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -436,18 +573,9 @@ func DeleteProduct(c *gin.Context) {
 	// TODO: $pull删除子数组中的元素
 
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Product delete succeeded",
 	})
-}
-
-// 供应商价格表
-type ProductPrice struct {
-	ProductID  int64   `json:"product_id" bson:"product_id"`
-	Product    string  `json:"product" bson:"product"`
-	SupplierID int64   `json:"supplier_id" bson:"supplier_id"`
-	Supplier   string  `json:"supplier" bson:"supplier"`
-	Price      float64 `json:"price" bson:"price"`
 }
 
 // 添加此商品的供应商价格
@@ -534,7 +662,7 @@ func ProductDetail(c *gin.Context) {
 	err := json.Unmarshal(data, &p)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "参数解释错误",
 		})
 		return
@@ -633,14 +761,20 @@ func ProductDetail(c *gin.Context) {
 	cur, err = collection.Find(context.TODO(), filter)
 
 	if err != nil {
-		fmt.Println("Can't find un suppliers: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  err.Error(),
+		})
 		return
 	}
 
 	for cur.Next(context.TODO()) {
 		var res models.Supplier
 		if err := cur.Decode(&res); err != nil {
-			fmt.Println("Can't find supplier: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't find supplier",
+			})
 			return
 		}
 		unSuppliers = append(unSuppliers, res)
@@ -650,19 +784,10 @@ func ProductDetail(c *gin.Context) {
 	responseData["supplier"] = result
 	responseData["un_supplier"] = unSuppliers
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Get product detail",
 		Data: responseData,
 	})
-}
-
-type SupplierListService struct {
-	ProductList []int64 `json:"products"`
-}
-
-type SupplierPriceOfProduct struct {
-	Supplier models.Supplier `json:"supplier"`
-	Price    float64         `json:"price"`
 }
 
 // 采购接口：点击采购后提供拥有这几个商品的供应商
@@ -738,5 +863,95 @@ func GetYpyunSign(c *gin.Context) {
 		Data:  sign,
 		Msg:   "",
 		Error: "",
+	})
+}
+
+// 设置是否优选商品
+func PreferredProduct(c *gin.Context) {
+
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+
+	var req ProductReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "params error",
+		})
+		return
+	}
+
+	collection := models.Client.Collection("product")
+
+	var product models.Product
+
+	err := collection.FindOne(context.TODO(), bson.D{{"com_id", claims.ComId}, {"product_id", req.ProductID}}).Decode(&product)
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "find product error",
+		})
+		return
+	}
+
+	_, err = collection.UpdateOne(context.TODO(), bson.D{{"com_id", claims.ComId}, {"product_id", req.ProductID}}, bson.M{
+		"$set": bson.M{"preferred": req.Preferred}})
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "update preferred product error",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, serializer.Response{
+		Code: serializer.CodeSuccess,
+		Msg:  "update preferred succeed",
+		Data: product,
+	})
+}
+
+// 设置是否推荐商品
+func RecommandProduct(c *gin.Context) {
+
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+
+	var req ProductReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "params error",
+		})
+		return
+	}
+
+	collection := models.Client.Collection("product")
+
+	var product models.Product
+
+	err := collection.FindOne(context.TODO(), bson.D{{"com_id", claims.ComId}, {"product_id", req.ProductID}}).Decode(&product)
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "find product error",
+		})
+		return
+	}
+
+	_, err = collection.UpdateOne(context.TODO(), bson.D{{"com_id", claims.ComId}, {"product_id", req.ProductID}}, bson.M{
+		"$set": bson.M{"recommand": req.Recommand}})
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "update recommand product error",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, serializer.Response{
+		Code: serializer.CodeSuccess,
+		Msg:  "update recommand succeed",
+		Data: product,
 	})
 }

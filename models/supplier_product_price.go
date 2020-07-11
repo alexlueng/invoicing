@@ -1,5 +1,7 @@
 package models
 
+import "go.mongodb.org/mongo-driver/mongo"
+
 // 供应商价格表
 type SupplierProductPrice struct {
 	ComID      int64   `json:"com_id" bson:"com_id"`
@@ -10,6 +12,10 @@ type SupplierProductPrice struct {
 	Price      float64 `json:"price" bson:"price"`
 	CreateAt   int64   `json:"create_at" bson:"create_at"`
 	IsValid    bool    `json:"is_valid" bson:"is_valid"`
+}
+
+func getSupplierProductPriceCollection() *mongo.Collection {
+	return Client.Collection("supplier_product_price")
 }
 
 type SupplierProductPriceReq struct {

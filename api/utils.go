@@ -30,6 +30,18 @@ func NotFound(c *gin.Context) {
 	})
 }
 
+type ImageURL struct {
+	ProductID int64  `json:"product_id"`
+	LocalURL  string `json:"local_path"`
+	CloudURL  string `json:"cloud_path"`
+}
+
+type CategoryImageURL struct {
+	CategoryID int64  `json:"category_id"`
+	LocalURL   string `json:"local_path"`
+	CloudURL   string `json:"cloud_path"`
+}
+
 func UploadImages(c *gin.Context) {
 
 	token := c.GetHeader("Access-Token")
@@ -42,7 +54,6 @@ func UploadImages(c *gin.Context) {
 	}
 
 	files := form.File["file"]
-	fmt.Println("form files: ", files)
 
 	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
@@ -51,49 +62,137 @@ func UploadImages(c *gin.Context) {
 
 	save_path := dir
 
-	urls := []string{}
-
+	urls := []ImageURL{}
 
 	for _, file := range files {
-		fmt.Println(file.Filename)
+
+		url := ImageURL{}
+
 		path, filename := util.GetYpyunPath(file.Filename)
 		upload_path := save_path + path
-		fmt.Println("storage path: ", upload_path)
 		_, err = os.Stat(upload_path)
 
 		if os.IsNotExist(err) {
-			fmt.Println("file path err: ", err)
 			err = os.MkdirAll(upload_path, os.ModePerm)
 
 			if err != nil {
-				fmt.Println("create dir err: ", err)
-				panic(err)
+				c.JSON(http.StatusOK, serializer.Response{
+					Code: serializer.CodeError,
+					Msg:  "Create directory error",
+				})
+				return
 			}
 		}
-		err := c.SaveUploadedFile(file, upload_path + filename)
+		err := c.SaveUploadedFile(file, upload_path+filename)
 		if err != nil {
-			fmt.Println("upload image error: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Save image error",
+			})
 			return
 		}
+
+		url.LocalURL = upload_path + filename
+
 		//ypyunURL := "http://img.jxc.weqi.exechina.com/upload/" + strconv.Itoa(int(claims.ComId)) + "/product_img/" + filename
 		//fmt.Println("url: ", ypyunURL)
 
 		ypyunURL1 := "/upload/" + strconv.Itoa(int(claims.ComId)) + "/product_img/" + filename
 
-		err = util.UpYunPut(ypyunURL1, upload_path + filename)
+		err = util.UpYunPut(ypyunURL1, upload_path+filename)
 		if err != nil {
-			fmt.Println("upload to the net failed: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Upload image to net error",
+			})
 			return
 		}
 		ret_url := "http://img.jxc.weqi.exechina.com" + ypyunURL1
-		urls = append(urls, ret_url)
+		url.CloudURL = ret_url
+
+		urls = append(urls, url)
 	}
 
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Get supplier instance",
 		Data: urls,
 	})
+}
+
+type DeleteImageService struct {
+	ImageID int64 `json:"image_id"`
+}
+
+// 删除图片接口
+func DeleteImages(c *gin.Context) {
+
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
+
+	var delImageSrv DeleteImageService
+	if err := c.ShouldBindJSON(&delImageSrv); err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeSuccess,
+			Msg:  "Params error",
+		})
+		return
+	}
+
+	collection := models.Client.Collection("image")
+	filter := bson.M{}
+	filter["com_id"] = claims.ComId
+	filter["image_id"] = delImageSrv.ImageID
+	var image models.Image
+	err := collection.FindOne(context.TODO(), filter).Decode(&image)
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Decode image error",
+		})
+		return
+	}
+
+	if err := deleteImage(image); err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, serializer.Response{
+		Code: serializer.CodeSuccess,
+		Msg:  "Delete image success",
+	})
+}
+
+func deleteImage(image models.Image) error {
+
+	// 删除本地的照片
+	util.Log().Info("local dir: ", image.LocalPath)
+	if _, err := os.Stat(image.LocalPath); os.IsNotExist(err) {
+		// path/to/whatever does not exist
+		util.Log().Info("image does not exist: ", image.LocalPath)
+	} else {
+		err := os.Remove(image.LocalPath)
+		if err != nil {
+			return err
+		}
+	}
+
+	// 删除云端的图片
+	if err := util.UpYunDelete(image.CloudPath, true); err != nil {
+		return err
+	}
+
+	collection := models.Client.Collection("image")
+	_, err := collection.UpdateOne(context.TODO(), bson.D{{"com_id", image.ComID}, {"image_id", image.ImageID}}, bson.M{
+		"$set": bson.M{"is_delete": true}})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // 顺序生成一个6位数的字符串，然后与日期拼接，得到当前的order_sn
@@ -107,10 +206,10 @@ func GetTempOrderSN() string {
 		fmt.Println("can't get OrderSN")
 		return ""
 	}
-	sn := strconv.Itoa(coc.Count+1)
+	sn := strconv.Itoa(coc.Count + 1)
 	if len(sn) < 6 {
 		fmt.Printf("len of sn: %d\n", len(sn))
-		step := 6-len(sn)
+		step := 6 - len(sn)
 		for i := 0; i < step; i++ {
 			sn = "0" + sn
 		}
@@ -119,7 +218,7 @@ func GetTempOrderSN() string {
 	sn = current_date + sn
 	fmt.Println("Current OrderSN: ", sn)
 
-	_, _  = collection.UpdateOne(context.TODO(), bson.M{"name": "customer_order"}, bson.M{"$set": bson.M{"count": coc.Count + 1}})
+	_, _ = collection.UpdateOne(context.TODO(), bson.M{"name": "customer_order"}, bson.M{"$set": bson.M{"count": coc.Count + 1}})
 
 	return sn
 }
@@ -136,15 +235,15 @@ func SetDefaultPageAndSize(page, size int64) (int64, int64) {
 	return p, s
 }
 
-func SmartPrint(i interface{}){
+func SmartPrint(i interface{}) {
 	var kv = make(map[string]interface{})
 	vValue := reflect.ValueOf(i)
-	vType :=reflect.TypeOf(i)
-	for i:=0; i < vValue.NumField(); i++{
+	vType := reflect.TypeOf(i)
+	for i := 0; i < vValue.NumField(); i++ {
 		kv[vType.Field(i).Name] = vValue.Field(i)
 	}
 	fmt.Println("获取到数据:")
-	for k,v := range kv {
+	for k, v := range kv {
 		fmt.Print(k)
 		fmt.Print(":")
 		fmt.Print(v)
@@ -153,7 +252,7 @@ func SmartPrint(i interface{}){
 }
 
 // 需要传一个自定义的数组，里面的元素是可以排序的字段
-func SetPaginationAndOrder(ordF string, ordFields []string,  ord string, page, size int64) *options.FindOptions {
+func SetPaginationAndOrder(ordF string, ordFields []string, ord string, page, size int64) *options.FindOptions {
 
 	exist := false
 	for _, v := range ordFields {
@@ -185,10 +284,11 @@ type Counts struct {
 	NameField string
 	Count     int64
 }
+
 // 因mongodb不允许自增方法，所以要生成新增客户的id
 // 这是极度不安全的代码，因为本程序是分布式的，本程序可能放在多台服务器上同时运行的。
 // 需要在交付之前修改正确
-func getLastID(field_name string) int64 {
+func GetLastID(field_name string) int64 {
 	var c Counts
 	collection := models.Client.Collection("counters")
 	err := collection.FindOne(context.TODO(), bson.D{{"name", field_name}}).Decode(&c)
@@ -201,7 +301,7 @@ func getLastID(field_name string) int64 {
 	return c.Count + 1
 }
 
-func setLastID(field_name string) error {
+func SetLastID(field_name string) error {
 	collection := models.Client.Collection("counters")
 	updateResult, err := collection.UpdateOne(context.TODO(), bson.D{{"name", field_name}}, bson.M{"$inc": bson.M{"count": 1}})
 	if err != nil {
@@ -210,9 +310,6 @@ func setLastID(field_name string) error {
 	fmt.Println("Update result: ", updateResult.UpsertedID)
 	return nil
 }
-
-// 本地文件上传到又拍云
-
 
 type Config struct {
 	ProductMenu string `json:"product_menu"`
@@ -245,5 +342,3 @@ func GetConfig(c *gin.Context) {
 		Data: config,
 	})
 }
-
-

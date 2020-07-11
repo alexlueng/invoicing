@@ -1,5 +1,7 @@
 package models
 
+import "go.mongodb.org/mongo-driver/mongo"
+
 // 供应商结算单表结构
 type SupplierSettlement struct {
 	ID           int64  `json:"id"`
@@ -37,11 +39,13 @@ type SupplierSettlement struct {
 	// 如何拆分子订单
 }
 
-// 客户付款后应该修改customer表中的已付款字段
+func getSupplierSettlementCollection() *mongo.Collection {
+	return Client.Collection("supplier_settlement")
+}
 
+// 客户付款后应该修改customer表中的已付款字段
 type SupplierSettlementReq struct {
 	BaseReq
-
 	View string `json:"view"` // 查看结算单的视图，分为订单模式，客户模式，结算单模式
 }
 

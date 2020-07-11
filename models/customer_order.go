@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"strconv"
 	"time"
@@ -77,9 +78,19 @@ type CustomerSubOrder struct {
 	IsPrepare       bool    `json:"is_prepare" bson:"is_prepare"`             // 是否备货完成
 }
 
+// 获取最新的主键ID
+type CustomerOrderCount struct {
+	NameField string
+	Count     int
+}
+
+func getCustomerOrderCollection() *mongo.Collection {
+	return Client.Collection("customer_order")
+}
+
 func (c *CustomerOrder) FindAll(filter bson.M, options *options.FindOptions) ([]CustomerOrder, error) {
 	var result []CustomerOrder
-	cur, err := Client.Collection("customer_order").Find(context.TODO(), filter, options)
+	cur, err := getCustomerOrderCollection().Find(context.TODO(), filter, options)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +105,7 @@ func (c *CustomerOrder) FindAll(filter bson.M, options *options.FindOptions) ([]
 }
 
 func (c *CustomerOrder) Insert() error {
-	_, err := Client.Collection("customer_order").InsertOne(context.TODO(), c)
+	_, err := getCustomerOrderCollection().InsertOne(context.TODO(), c)
 	if err != nil {
 		return err
 	}

@@ -266,7 +266,7 @@ func GenSettlement(c *gin.Context) {
 	// 生成结算单
 	var cusSettlement models.CustomerSettlement
 	cusSettlement.ComID = claims.ComId
-	cusSettlement.ID = getLastID("customer_settlement")
+	cusSettlement.ID = GetLastID("customer_settlement")
 	cusSettlement.CustomerName = gs.CustomerName
 	cusSettlement.SettlementSN = GetTempOrderSN()
 
@@ -296,7 +296,7 @@ func GenSettlement(c *gin.Context) {
 	}
 	fmt.Println("Insert result: ", insertResult.InsertedID)
 
-	setLastID("customer_settlement")
+	SetLastID("customer_settlement")
 
 	// 修改商品实例的状态
 	_, err = collection.UpdateMany(context.TODO(),

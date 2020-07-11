@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"jxc/auth"
@@ -28,7 +27,7 @@ func AddCustomerPrice(c *gin.Context) {
 	err := json.Unmarshal(data, &customerProductPrice)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "参数解释错误",
 		})
 		return
@@ -38,15 +37,9 @@ func AddCustomerPrice(c *gin.Context) {
 		// 修改默认价格
 		// 在商品表，客户商品价格表中都要修改
 		// 在客户商品价格表中，把原来的默认价格记为false,再插入一条新的记录
-		fmt.Println("execute here")
-
-		fmt.Println("customer id is: ", customerProductPrice.CustomerID)
-		fmt.Println("product id is: ", customerProductPrice.ProductID)
 		filter := bson.M{}
-		//filter["com_id"] = com.ComId
 		filter["com_id"] = claims.ComId
 		filter["product_id"] = customerProductPrice.ProductID
-		//filter["customer_id"] = customerProductPrice.CustomerID
 		filter["is_valid"] = true
 		collection := models.Client.Collection("customer_product_price")
 
@@ -54,7 +47,10 @@ func AddCustomerPrice(c *gin.Context) {
 
 		err := collection.FindOne(context.TODO(), filter).Decode(&oldRecord)
 		if err != nil {
-			fmt.Println("can't find old record: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't find customer price",
+			})
 			return
 		}
 
@@ -62,41 +58,46 @@ func AddCustomerPrice(c *gin.Context) {
 		newRecord.Price = customerProductPrice.Price
 
 		// 将旧记录设为false
-		updateResult, err := collection.UpdateOne(context.TODO(), filter, bson.M{
+		_, err = collection.UpdateOne(context.TODO(), filter, bson.M{
 			"$set": bson.M{"is_valid": false}})
 		if err != nil {
-			fmt.Println("Can't update old record: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't update old record",
+			})
 			return
 		}
-		fmt.Println("update old record: ", updateResult.UpsertedID)
 
 		// 加入一条新记录
-		insertResult, err := collection.InsertOne(context.TODO(), newRecord)
+		_, err = collection.InsertOne(context.TODO(), newRecord)
 		if err != nil {
-			fmt.Println("Can't not insert new record: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't insert new customer product record",
+			})
 			return
 		}
-		fmt.Println("insert new record: ", insertResult.InsertedID)
 
 		filter = bson.M{}
 		filter["product_id"] = customerProductPrice.ProductID
 		collection = models.Client.Collection("product")
-		updateResult, err = collection.UpdateOne(context.TODO(), filter, bson.M{
+		_, err = collection.UpdateOne(context.TODO(), filter, bson.M{
 			"$set": bson.M{"default_price": customerProductPrice.DefaultPrice}})
 		if err != nil {
-			fmt.Println("Can't update default price: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't update product",
+			})
 			return
 		}
-		fmt.Println("update default product price: ", updateResult.UpsertedID)
 
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: 200,
+			Code: serializer.CodeSuccess,
 			Msg:  "update default price success",
 		})
 		return
 	}
 
-	//customerProductPrice.ComID = com.ComId
 	customerProductPrice.ComID = claims.ComId
 	// 加上一个时间戳，以及一个有效值
 	timestamp := time.Now().Unix()
@@ -107,7 +108,6 @@ func AddCustomerPrice(c *gin.Context) {
 
 	// 找到此商品上一个有效价格记录，如果有，则把它设置为无效
 	filter := bson.M{}
-	//filter["com_id"] = com.ComId
 	filter["com_id"] = claims.ComId
 	filter["product_id"] = customerProductPrice.ProductID
 	filter["customer_id"] = customerProductPrice.CustomerID
@@ -117,7 +117,10 @@ func AddCustomerPrice(c *gin.Context) {
 	var res models.Product
 	err = proCollects.FindOne(context.TODO(), bson.D{{"product_id", customerProductPrice.ProductID}}).Decode(&res)
 	if err != nil {
-		fmt.Println("Can't get default product price: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Can't find product",
+		})
 		return
 	}
 
@@ -128,13 +131,11 @@ func AddCustomerPrice(c *gin.Context) {
 	if err != nil {
 		//没有找到这个记录，说明这个客户价格是新增的
 		//保存这条记录，更新product表中的cus_product字段
-		fmt.Println("no document found, this is a new record")
 
 		_, err = collection.InsertOne(context.TODO(), customerProductPrice)
 		if err != nil {
-			fmt.Println("Update customer price failed: ", err)
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  "添加记录错误",
 			})
 			return
@@ -147,10 +148,9 @@ func AddCustomerPrice(c *gin.Context) {
 		pushToArray := bson.M{"$addToSet": bson.M{"cus_price": customerProductPrice.CustomerID}}
 		_, err = collection.UpdateOne(context.TODO(), insertProduct, pushToArray)
 		if err != nil {
-			fmt.Println("update cus_price err: ", err)
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
-				Msg:  "参数解释错误",
+				Code: serializer.CodeError,
+				Msg:  "Can't insert customer product pricec",
 			})
 			return
 		}
@@ -158,22 +158,19 @@ func AddCustomerPrice(c *gin.Context) {
 	} else {
 		// 找到了旧记录
 		// 把旧记录的is_valid字段更新为false,然后插入这条记录
-		fmt.Println("change old record: ", filter)
 		_, err = collection.UpdateOne(context.TODO(), filter, bson.M{
 			"$set": bson.M{"is_valid": false}})
 		if err != nil {
-			fmt.Println("Update customer price failed: ", err)
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  "添加记录错误",
 			})
 			return
 		}
 		_, err := collection.InsertOne(context.TODO(), customerProductPrice)
 		if err != nil {
-			fmt.Println("Update customer price failed: ", err)
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  "添加记录错误",
 			})
 			return
@@ -181,7 +178,7 @@ func AddCustomerPrice(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Insert record succeeded",
 	})
 	return
@@ -199,19 +196,12 @@ func ListCustomerPrice(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	// 得到所有的商品id
-	// 得到所有的客户
-
-	// 可以分页，搜索
-
-	// get com_id
-
 	var req models.CustomerProductPriceReq
 
 	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "参数解释错误",
 		})
 		return
@@ -231,7 +221,6 @@ func ListCustomerPrice(c *gin.Context) {
 	//opts := options.FindOne()
 	//opts.Projection = bson.M{"cus_price":1, "_id": 0}
 	var allProducts []ProductList
-	// 得到当前分页中的商品列表
 	collection := models.Client.Collection("product")
 	cur, err := collection.Find(context.TODO(), filter, option)
 
@@ -285,13 +274,19 @@ func ListCustomerPrice(c *gin.Context) {
 
 	cur, err = collection.Find(context.TODO(), filter)
 	if err != nil {
-		fmt.Println("Can't not use or like that: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Can't find customer product price",
+		})
 		return
 	}
 	for cur.Next(context.TODO()) {
 		var res models.CustomerProductPrice
 		if err := cur.Decode(&res); err != nil {
-			fmt.Println("err: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't decode product price",
+			})
 			return
 		}
 
@@ -313,7 +308,10 @@ func ListCustomerPrice(c *gin.Context) {
 		filter["customer_name"] = bson.M{"$eq": "default"}
 		cur, err = collection.Find(context.TODO(), filter)
 		if err != nil {
-			fmt.Println("Can't not use or like that: ", err)
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't find customer product price",
+			})
 			return
 		}
 		for cur.Next(context.TODO()) {
@@ -334,7 +332,7 @@ func ListCustomerPrice(c *gin.Context) {
 	}
 
 	var total int
-	//total, _ = models.Client.Collection("customer_product_price").CountDocuments(context.TODO(), filter)
+	// TODO: find a good way to calculator total
 	total = len(responseData)
 
 	res := models.ResponseCustomerProductPriceData{}
@@ -353,9 +351,9 @@ func ListCustomerPrice(c *gin.Context) {
 }
 
 func DeleteCustomerPrice(c *gin.Context) {
+
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
 
 	var req models.CustomerProductPriceReq
 
@@ -369,16 +367,18 @@ func DeleteCustomerPrice(c *gin.Context) {
 	filter["customer_id"] = req.CustomerID
 	filter["is_valid"] = true
 
-	collection.UpdateOne(context.TODO(), filter, bson.M{
+	_, err := collection.UpdateOne(context.TODO(), filter, bson.M{
 		"$set": bson.M{"is_valid": false,}})
 
-	//collection = models.Client.Collection("product")
-	//updateProduct := bson.M{"product_id": req.ProductID}
-	//
-	//pushToArray := bson.M{"$addToSet": bson.M{"cus_price": customerProductPrice.CustomerID}}
-	//
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Can't update customer product price",
+		})
+	}
+
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Delete customer price success",
 	})
 

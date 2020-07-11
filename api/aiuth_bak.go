@@ -1,10 +1,8 @@
 package api
 
 import (
-	"context"
 	"github.com/gin-gonic/gin"
 	"jxc/models"
-	"jxc/util"
 )
 
 func AuthA(c *gin.Context) {
@@ -313,8 +311,7 @@ func AuthA(c *gin.Context) {
 	for _, val := range authNote {
 		authNotes = append(authNotes, val)
 	}
-	util.GetTableId("auth_note")
-	// 指定数据集
-	collection := models.Client.Collection("auth_note")
-	collection.InsertMany(context.TODO(), authNotes)
+
+	var a = models.AuthNote{}
+	a.InsertMany(authNotes)
 }

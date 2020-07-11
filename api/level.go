@@ -11,8 +11,17 @@ import (
 )
 
 // 客户等级
+// 客户关联客户等级 进而在计算商品售价时与客户等级挂钩
 type LevelReq struct {
-	Levels []models.Level `json:"levels"`
+	LevelID         int64   `json:"level_id"`
+	LevelName       string  `json:"level_name"`
+	Discount        int64   `json:"discount"`
+	LevelClass      int64   `json:"level_class"`
+	AutoUpgrade     bool    `json:"auto_upgrade"`
+	ConsumeAmount   float64 `json:"consume_amount"`
+	ConsumeUsing    bool    `json:"consume_using"`
+	RecommandPeople int64   `json:"recommand_people"`
+	RecommandUsing  bool    `json:"recommand_using"`
 }
 
 func LevelList(c *gin.Context) {
@@ -20,7 +29,7 @@ func LevelList(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	collection := models.Client.Collection("livel")
+	collection := models.Client.Collection("level")
 	filter := bson.M{}
 	filter["com_id"] = claims.ComId
 
@@ -52,7 +61,6 @@ func LevelList(c *gin.Context) {
 	})
 }
 
-
 func AddLevel(c *gin.Context) {
 
 	token := c.GetHeader("Access-Token")
@@ -67,30 +75,41 @@ func AddLevel(c *gin.Context) {
 		return
 	}
 
-	collection := models.Client.Collection("level")
+	var level models.Level
+	level.ComID = claims.ComId
+	level.LevelID = GetLastID("level")
+	level.LevelName = req.LevelName
+	level.Discount = float64(req.Discount)
+	level.LevelClass = req.LevelClass
+	level.AutoUpgrade = req.AutoUpgrade
+	level.ConsumeAmount = req.ConsumeAmount
+	level.ConsumeUsing = req.ConsumeUsing
+	level.RecommandPeople = req.RecommandPeople
+	level.RecommandUsing = req.RecommandUsing
 
-	for _, level := range req.Levels {
-		level.ComID = claims.ComId
-		level.LevelID = getLastID("level")
-		setLastID("level")
-		_, err := collection.InsertOne(context.TODO(), level)
-		if err != nil {
-			c.JSON(http.StatusOK, serializer.Response{
-				Code: serializer.CodeError,
-				Msg:  "Can't decode level",
-			})
-			return
-		}
+	collection := models.Client.Collection("level")
+	_, err := collection.InsertOne(context.TODO(), level)
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Can't insert level",
+		})
+		return
 	}
+	SetLastID("level")
 
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: serializer.CodeSuccess,
 		Msg:  "Insert level succeed",
+		Data: level,
 	})
 
 }
 
 func UpdateLevel(c *gin.Context) {
+
+	token := c.GetHeader("Access-Token")
+	claims, _ := auth.ParseToken(token)
 
 	var req LevelReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -102,17 +121,23 @@ func UpdateLevel(c *gin.Context) {
 	}
 
 	collection := models.Client.Collection("level")
-	for _, level := range req.Levels {
-		_, err := collection.UpdateOne(context.TODO(), bson.D{{"level_id", level.LevelID}}, bson.M{"$set" : level})
-		if err != nil {
-			c.JSON(http.StatusOK, serializer.Response{
-				Code: serializer.CodeError,
-				Msg:  "Params error",
-			})
-			return
-		}
+	filter := bson.M{}
+	filter["com_id"] = claims.ComId
+	filter["level_id"] = req.LevelID
+	_, err := collection.UpdateOne(context.TODO(), filter, bson.M{"$set": bson.M{"level_name": req.LevelName,
+			"discount": req.Discount,
+			"level_class": req.LevelClass,
+			"auto_upgrade": req.AutoUpgrade,
+			"consume_amount": req.ConsumeAmount,
+			"consume_using": req.ConsumeUsing,
+			"recommand_people": req.RecommandPeople,
+			"recommand_using": req.RecommandUsing,}})
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "Update level failed",
+		})
 	}
-
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: serializer.CodeSuccess,
 		Msg:  "Update level succeed",

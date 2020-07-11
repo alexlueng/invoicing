@@ -126,7 +126,7 @@ func GetYpyunPath(fileName string) (string, string) {
 	// linux
 	path := "/product_img/" + currentDate + "/"
 
-	filename :=  timeStr + randStr + "." + fileType[1]
+	filename := timeStr + randStr + "." + fileType[1]
 	return path, filename
 }
 
@@ -145,10 +145,6 @@ func NewUpYun() *upyun.UpYun {
 // 又拍云上传
 func UpYunPut(path, localPath string) error {
 
-	fmt.Println("path: ", path)
-	fmt.Println("local path: ", localPath)
-
-
 	up := NewUpYun()
 	err := up.Put(&upyun.PutObjectConfig{
 		//Path:      "/demo.log",
@@ -159,4 +155,13 @@ func UpYunPut(path, localPath string) error {
 	return err
 }
 
+// 又拍云删除
+func UpYunDelete(path string, async bool) error {
 
+	up := NewUpYun()
+	err := up.Delete(&upyun.DeleteObjectConfig{
+		Path:  path,
+		Async: async,
+	})
+	return err
+}

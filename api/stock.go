@@ -79,7 +79,7 @@ func CreateWosInstance(c *gin.Context) {
 	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "参数解释错误",
 		})
 		return

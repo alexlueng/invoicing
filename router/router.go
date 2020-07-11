@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/gin-gonic/gin"
 	"jxc/api"
+	"jxc/api/wxapp"
 	"jxc/middleware"
 )
 
@@ -17,6 +18,8 @@ func InitRouter() *gin.Engine {
 	r.POST("/changedomainstatus", api.ChangeDomainStatus)
 	r.POST("/update_expire_time", api.UpdateExpireTime)
 	r.POST("/getconfig", api.GetConfig) //页面信息配置
+
+	r.GET("/wx/:filename", api.WechatVerify) // 微信验证接口
 
 	// 中间件, 顺序不能改
 	r.Use(middleware.Cors())      // 允许跨域
@@ -38,7 +41,9 @@ func InitRouter() *gin.Engine {
 			v1.POST("/supplier/mobile/reset_password", api.SupplierResetPassword)    // 重置密码
 			v1.POST("/supplier/mobile/upload_images", api.SupplierUploadCertificate) // 上传凭证
 
-			v1.POST("/upload_images", api.UploadImages)
+			// 图片处理接口
+			v1.POST("/upload_images", api.UploadImages) // 上传图片
+			v1.POST("/delete_images", api.DeleteImages) // 删除图片
 
 			//系统设置
 			v1.POST("/sysconfig/set_expire_date", middleware.GetComID(), api.SetSysExpireDate) // 设置系统发货提示时间
@@ -125,6 +130,8 @@ func InitRouter() *gin.Engine {
 			v1.POST("/product/detail", middleware.GetComIDAndModuleID(), api.ProductDetail) // 商品详情
 			v1.POST("/product/supplierlist", api.SupplierListOfProducts)
 			v1.GET("/product/img_load_sign", api.GetYpyunSign) //获取又拍云上传签名
+			v1.POST("/product/preferred", api.PreferredProduct) // 设置为优选商品
+			v1.POST("/product/recommand", api.RecommandProduct) // 设置为推荐商品
 
 			// 商品分类
 			v1.POST("/product/category/create", api.AddCategory)
@@ -173,6 +180,28 @@ func InitRouter() *gin.Engine {
 				message.POST("/read", api.ReadMessage)
 				message.POST("/find_expire_orders", api.OrderMessages)
 			}
+
+			// 微信小程序接口，商品列表，购物车，分类，
+			wxApp := v1.Group("/wxapp")
+			{
+				wxApp.POST("/hello", wxapp.Hello)
+				wxApp.POST("/login", wxapp.Login) // 登录
+				wxApp.POST("/category", wxapp.CategoryList) // 分类
+				wxApp.POST("/recommandproduct", wxapp.RecommandProductList) // 首页推荐
+				wxApp.POST("/preferredproduct", wxapp.PreferredProductList) // 首页优选
+				wxApp.POST("/cat_products", wxapp.CatProducts) // 分类商品
+
+			}
+
+			// 后台微信设置接口
+			wechat := v1.Group("/wechat")
+			{
+				//wechat.POST("/test", api.WeChatTest)
+				//wechat.GET("/", api.WechatVerify)
+				wechat.GET("/upload_path", api.FileUploadPath)
+				wechat.POST("/upload", api.UploadVerifyFile)
+			}
+
 		}
 
 	}

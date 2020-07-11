@@ -1,5 +1,7 @@
 package models
 
+import "go.mongodb.org/mongo-driver/mongo"
+
 // 商品实例表
 // 客户 1
 // 供应商 2
@@ -75,4 +77,8 @@ type GoodsInstance struct {
 	SupSettleOrderId int64   `json:"supsettle_order_id" bson:"supsettle_order_id"`
 	SupSettle        int64   `json:"supsettle" bson:"supsettle"` // 是否结算
 	Invoice          int64   `json:"invoice" bson:"invoice"`     // 1 是否开票 2 未开票 3 已开票
+}
+
+func getGoodsInstanceCollection() *mongo.Collection {
+	return Client.Collection("goods_instance")
 }

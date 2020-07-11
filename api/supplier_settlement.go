@@ -306,7 +306,7 @@ func GenSupSettlement(c *gin.Context) {
 	// 生成结算单
 	var supSettlement models.SupplierSettlement
 	supSettlement.ComID = claims.ComId
-	supSettlement.ID = getLastID("supplier_settlement")
+	supSettlement.ID = GetLastID("supplier_settlement")
 	supSettlement.SupplierName = gs.SupplierName
 	supSettlement.SettlementSN = GetTempOrderSN()
 	supSettlement.SupplierID = gs.SupplierID
@@ -329,7 +329,7 @@ func GenSupSettlement(c *gin.Context) {
 		return
 	}
 	fmt.Println("Insert result: ", insertResult.InsertedID)
-	setLastID("supplier_settlement")
+	SetLastID("supplier_settlement")
 
 	// 修改商品实例的状态
 	updateResult, err := collection.UpdateMany(context.TODO(),
