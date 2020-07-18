@@ -6,6 +6,7 @@ require (
 	gitee.com/xiaochengtech/wechat v0.0.0-20200703074903-00e93881b2f2
 	github.com/360EntSecGroup-Skylar/excelize v1.4.1
 	github.com/DataDog/zstd v1.4.4 // indirect
+	github.com/beevik/etree v1.1.0 // indirect
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/gin-contrib/sessions v0.0.3
 	github.com/gin-contrib/static v0.0.0-20191128031702-f81c604d8ac2

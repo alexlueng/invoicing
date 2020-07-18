@@ -34,11 +34,14 @@ const (
 )
 
 const (
-	CodeError        = -1
-	CodeTokenErr     = -2
-	CodeMessageErr   = -3
-	CodeSysConfigErr = -4
-	CodeSuccess      = 200
+	CodeError         = -1
+	CodeTokenErr      = -2
+	CodeMessageErr    = -3
+	CodeSysConfigErr  = -4
+	CodeNoCategoryErr = -5
+	CodeNoResultErr   = -6 // 没有结果集而返回的错误
+	CodeMiniappUserNotLoginErr = -7 // 小程序用户没有登录
+	CodeSuccess       = 200
 )
 
 // CheckLogin 检查登录

@@ -74,12 +74,12 @@ func CompanyDetail(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	var company models.Company
+	var company *models.Company
 	var comInfoResponse ComInfoResponse
 	var deliverys []models.Delivery
 
 	// 查找公司相应的信息
-	_, err := models.SelectCompanyByComID(claims.ComId)
+	company, err := models.SelectCompanyByComID(claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,

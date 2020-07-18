@@ -323,13 +323,11 @@ func GenSupSettlement(c *gin.Context) {
 	supSettlement.Status = 0 // 0:结算中 1：结算完成
 
 	supSettleCollects := models.Client.Collection("supplier_settlement")
-	insertResult, err := supSettleCollects.InsertOne(context.TODO(), supSettlement)
+	_, err = supSettleCollects.InsertOne(context.TODO(), supSettlement)
 	if err != nil {
 		fmt.Println("Can't insert cus settlement: ", err)
 		return
 	}
-	fmt.Println("Insert result: ", insertResult.InsertedID)
-	SetLastID("supplier_settlement")
 
 	// 修改商品实例的状态
 	updateResult, err := collection.UpdateMany(context.TODO(),

@@ -12,6 +12,7 @@ import (
 	"jxc/serializer"
 	"jxc/util"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -289,26 +290,19 @@ type Counts struct {
 // 这是极度不安全的代码，因为本程序是分布式的，本程序可能放在多台服务器上同时运行的。
 // 需要在交付之前修改正确
 func GetLastID(field_name string) int64 {
-	var c Counts
-	collection := models.Client.Collection("counters")
-	err := collection.FindOne(context.TODO(), bson.D{{"name", field_name}}).Decode(&c)
-	if err != nil {
-		fmt.Println("can't get ID")
-		return 0
-	}
-	//collection.UpdateOne(context.TODO(), bson.M{"name": field_name}, bson.M{"$set": bson.M{"count": c.Count + 1}})
-	//fmt.Printf("%s count: %d", field_name, c.Count)
-	return c.Count + 1
-}
-
-func SetLastID(field_name string) error {
 	collection := models.Client.Collection("counters")
 	updateResult, err := collection.UpdateOne(context.TODO(), bson.D{{"name", field_name}}, bson.M{"$inc": bson.M{"count": 1}})
-	if err != nil {
-		return err
+	if err != nil || updateResult.ModifiedCount < 1 {
+		collection.InsertOne(context.TODO(), bson.D{{"name", field_name}, {"count", 1}})
+		return 1
 	}
-	fmt.Println("Update result: ", updateResult.UpsertedID)
-	return nil
+
+	var c Counts
+	err = collection.FindOne(context.TODO(), bson.D{{"name", field_name}}).Decode(&c)
+	if err != nil {
+		return 0
+	}
+	return c.Count
 }
 
 type Config struct {
@@ -341,4 +335,44 @@ func GetConfig(c *gin.Context) {
 		Msg:  "Get Config",
 		Data: config,
 	})
+}
+
+var (
+	BeijingLocation = time.FixedZone("Asia/Shanghai", 8*60*60)
+)
+
+func RandomString(n int) string {
+
+	var letter = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+
+	b := make([]rune, n)
+	length := len(letter)
+
+	for i := range b {
+		b[i] = letter[rand.Intn(length)]
+	}
+
+	return string(b)
+}
+
+func NonceStr() string {
+
+	return RandomString(32)
+}
+
+// FormatTime time.Time => "yyyyMMddHHmmss."
+func FormatTime(t time.Time) string {
+
+	return t.In(BeijingLocation).Format("20060102150405")
+}
+
+// ParseTime "yyyyMMddHHmmss" => time.Time.
+func ParseTime(value string) (time.Time, error) {
+
+	return time.ParseInLocation("20060102150405", value, BeijingLocation)
+}
+
+func TimeStamp() string  {
+
+	return strconv.FormatInt(time.Now().Unix(), 10)
 }

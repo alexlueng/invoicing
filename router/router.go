@@ -129,7 +129,7 @@ func InitRouter() *gin.Engine {
 			v1.POST("/product/addprice", api.AddPrice)                                      //添加供应商价格
 			v1.POST("/product/detail", middleware.GetComIDAndModuleID(), api.ProductDetail) // 商品详情
 			v1.POST("/product/supplierlist", api.SupplierListOfProducts)
-			v1.GET("/product/img_load_sign", api.GetYpyunSign) //获取又拍云上传签名
+			v1.GET("/product/img_load_sign", api.GetYpyunSign)  //获取又拍云上传签名
 			v1.POST("/product/preferred", api.PreferredProduct) // 设置为优选商品
 			v1.POST("/product/recommand", api.RecommandProduct) // 设置为推荐商品
 
@@ -184,23 +184,33 @@ func InitRouter() *gin.Engine {
 			// 微信小程序接口，商品列表，购物车，分类，
 			wxApp := v1.Group("/wxapp")
 			{
-				wxApp.POST("/hello", wxapp.Hello)
-				wxApp.POST("/login", wxapp.Login) // 登录
-				wxApp.POST("/category", wxapp.CategoryList) // 分类
+				wxApp.POST("/login", wxapp.Login)                           // 登录
+				wxApp.POST("/user_info", wxapp.GetUserInfo)                 // 得到用户信息
+				wxApp.POST("/category", wxapp.CategoryList)                 // 分类
 				wxApp.POST("/recommandproduct", wxapp.RecommandProductList) // 首页推荐
 				wxApp.POST("/preferredproduct", wxapp.PreferredProductList) // 首页优选
-				wxApp.POST("/cat_products", wxapp.CatProducts) // 分类商品
+				wxApp.POST("/cat_products", wxapp.CatProducts)              // 分类商品
+				wxApp.POST("/verify", wxapp.UserVerify)                     // 用户上传验证资料
+				wxApp.POST("/cat_product", wxapp.ProductListByCategoryID)   // 根据分类id获取商品列表
+				wxApp.POST("/product_detail", wxapp.ProductDetail)          // 商品详情
+				wxApp.POST("/add_cart", wxapp.AddToCart)                    // 添加购物车
+				wxApp.POST("/remove_cart", wxapp.RemoveFromCart)            // 购物车移除商品
+				wxApp.POST("/clear_cart", wxapp.ClearCart)                  // 清空购物车
+				wxApp.POST("/list_cart", wxapp.ListCart)                    // 购物车列表
+				wxApp.POST("/delete_cart", wxapp.DeleteCartItem)            // 删除购物车项
+				wxApp.POST("/summit_order", wxapp.SummitOrder)              // 提交订单
+				wxApp.POST("/address", wxapp.UserAddresses)                 // 用户地址
 
 			}
 
 			// 后台微信设置接口
 			wechat := v1.Group("/wechat")
 			{
-				//wechat.POST("/test", api.WeChatTest)
-				//wechat.GET("/", api.WechatVerify)
 				wechat.GET("/upload_path", api.FileUploadPath)
 				wechat.POST("/upload", api.UploadVerifyFile)
 			}
+
+			// 微信支付接口
 
 		}
 

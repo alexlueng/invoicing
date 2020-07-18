@@ -245,7 +245,6 @@ func AddProduct(c *gin.Context) {
 			})
 			return
 		}
-		SetLastID("image")
 	}
 
 	// 把商品的默认记录存到客户商品价格表中
@@ -267,7 +266,6 @@ func AddProduct(c *gin.Context) {
 		})
 		return
 	}
-	SetLastID("product")
 
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: serializer.CodeSuccess,
@@ -457,7 +455,6 @@ func UpdateProduct(c *gin.Context) {
 				})
 				return
 			}
-			SetLastID("image")
 		}
 	}
 
@@ -751,6 +748,7 @@ func ProductDetail(c *gin.Context) {
 			Msg:  "没有另外提供此商品的供应商",
 			Data: responseData,
 		})
+		return
 	}
 
 	var unSuppliers []models.Supplier

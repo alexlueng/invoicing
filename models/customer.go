@@ -11,16 +11,17 @@ import (
 // Customer represent the customer
 // 需要加上com_id, 每个公司都有自己的ID
 type Customer struct {
-	ID             int64   `json:"customer_id" bson:"customer_id"`
-	ComID          int64   `json:"com_id" bson:"com_id"`
-	Name           string  `json:"customer_name" bson:"name"`
-	LevelID        int64   `json:"level" bson:"level"`
-	Payment        string  `json:"payment" bson:"payment"`
-	PayAmount      float64 `json:"paid" bson:"paid"`
-	Receiver       string  `json:"receiver" bson:"receiver"`
-	Address        string  `json:"receiver_address" bson:"receiver_address"`
-	Phone          string  `json:"receiver_phone" bson:"receiver_phone"`
-	LastSettlement int64   `json:"last_settlement" bson:"last_settlement"` // 上次结算时间
+	ID             int64     `json:"customer_id" bson:"customer_id"`
+	ComID          int64     `json:"com_id" bson:"com_id"`
+	Name           string    `json:"customer_name" bson:"name"`
+	LevelID        int64     `json:"level" bson:"level"`     //用户等级
+	Payment        string    `json:"payment" bson:"payment"` // 支付方式
+	PayAmount      float64   `json:"paid" bson:"paid"`
+	Receiver       string    `json:"receiver" bson:"receiver"`                 // TODO：弃用 放在addresses中
+	Address        string    `json:"receiver_address" bson:"receiver_address"` // TODO：弃用 使用地址数组
+	Phone          string    `json:"receiver_phone" bson:"receiver_phone"`
+	LastSettlement int64     `json:"last_settlement" bson:"last_settlement"` // 上次结算时间
+	Addresses      []Address `json:"addresses" bson:"addresses"`             // 用户收货地址
 }
 
 func getCustomerCollection() *mongo.Collection {
@@ -153,4 +154,38 @@ type ResponseCustomerData struct {
 	Pages       int64      `json:"pages"`
 	Size        int64      `json:"size"`
 	CurrentPage int64      `json:"current_page"`
+}
+
+// 微信小程序用户
+type MiniAppUser struct {
+	ComID          int64   `json:"com_id" bson:"com_id"`
+	UserID         int64   `json:"user_id" bson:"user_id"`
+	OpenID         string  `json:"open_id" bson:"open_id"`     // 小程序用户唯一标识
+	AvatarURL      string  `json:"avatarurl" bson:"avatarurl"` // 头像地址
+	City           string  `json:"city" bson:"city"`
+	Gender         int64   `json:"gender" bson:"gender"`       // 性别 1 男 2 女
+	Language       string  `json:"language" bson:"language"`   // 语言
+	NickName       string  `json:"nickname" bson:"nickname"`   // 昵称
+	Province       string  `json:"province" bson:"province"`   // 省份
+	Telephone      string  `json:"telephone" bson:"telephone"` // 手机号
+	CreateAt       int64   `json:"create_at" bson:"create_at"`
+	Verify         int64   `json:"verify" bson:"verify"`                   // 是否通过验证 0 待验证 1 已经验证 2 验证不通过
+	SessionKey     string  `json:"session_key" bson:"session_key"`         // 微信服务器传回来的key
+	Salt           string  `json:"salt" bson:"salt"`                       // 用于加密的随机字符串
+	PurchaseAmount float64 `json:"purchase_amount" bson:"purchase_amount"` // 消费总额
+}
+
+// 用户上传验证资料
+type UserVerifyMaterial struct {
+	ComID           int64  `json:"com_id" bson:"com_id"`
+	MaterialID      int64  `json:"material_id" bson:"material_id"`
+	UserID          int64  `json:"user_id" bson:"user_id"`
+	BusinessLicense string `json:"business_license" bson:"business_license"` // 营业执照图片
+	LicenseNo       string `json:"license_no" bson:"license_no"`             // 营业执照号
+	CompanyType     int64  `json:"company_type" bson:"company_type"`         // 公司类型 1 配送公司 2 档口
+	CompanyName     string `json:"company_name" bson:"company_name"`         // 公司名称
+	Contact         string `json:"contact" bson:"contact"`                   // 联系人
+	Telephone       string `json:"telephone" bson:"telephone"`
+	Address         string `json:"address" bson:"address"`
+	VerifyCode      string `json:"verify_code" bson:"verify_code"` // 验证码
 }

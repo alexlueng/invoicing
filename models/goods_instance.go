@@ -1,6 +1,11 @@
 package models
 
-import "go.mongodb.org/mongo-driver/mongo"
+import (
+	"context"
+	"fmt"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+)
 
 // 商品实例表
 // 客户 1
@@ -82,3 +87,31 @@ type GoodsInstance struct {
 func getGoodsInstanceCollection() *mongo.Collection {
 	return Client.Collection("goods_instance")
 }
+
+type GoodsInstanceResponse struct {
+	GoodsInstance []GoodsInstance `json:"goods_instance"`
+}
+
+func SelectGoodsInstanceByComIDAndDestIDAndStatus(comID int64, destID int, status int64) (*GoodsInstanceResponse, error) {
+	filter := bson.M{}
+	filter["com_id"] = comID
+	filter["dest_id"] = destID
+	filter["status"] = status
+
+	var resp = new(GoodsInstanceResponse)
+	cur, err := getGoodsInstanceCollection().Find(context.TODO(), filter)
+	if err != nil {
+		fmt.Println("Can't find instances: ", err)
+		return nil, err
+	}
+	for cur.Next(context.TODO()) {
+		var res GoodsInstance
+		if err := cur.Decode(&res); err != nil {
+			fmt.Println("Can't decode instance: ", err)
+			return nil, err
+		}
+		resp.GoodsInstance = append(resp.GoodsInstance, res)
+	}
+	return resp, nil
+}
+

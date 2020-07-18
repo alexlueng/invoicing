@@ -1,9 +1,7 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"io/ioutil"
@@ -45,7 +43,6 @@ func ListCustomers(c *gin.Context) {
 		filter["name"] = bson.M{"$regex": req.Name}
 	}
 	if req.Receiver != "" {
-		fmt.Println("receiver: ", req.Receiver)
 		filter["receiver"] = bson.M{"$regex": req.Receiver}
 	}
 	level, _ := strconv.Atoi(req.Level)
@@ -131,7 +128,7 @@ func AddCustomer(c *gin.Context) {
 			return
 		}
 	}
-	customer.ID = int64(getLastCustomerID())
+	customer.ID = GetLastID("customer")
 
 	err := customer.Insert()
 	if err != nil {
@@ -221,21 +218,5 @@ func DeleteCustomer(c *gin.Context) {
 type CustomerCount struct {
 	NameField string
 	Count     int
-}
-
-// 因mongodb不允许自增方法，所以要生成新增客户的id
-// 这是极度不安全的代码，因为本程序是分布式的，本程序可能放在多台服务器上同时运行的。
-// 需要在交付之前修改正确
-func getLastCustomerID() int {
-	var cc CustomerCount
-	collection := models.Client.Collection("counters")
-	err := collection.FindOne(context.TODO(), bson.D{{"name", "customer"}}).Decode(&cc)
-	if err != nil {
-		fmt.Println("can't get customerID")
-		return 0
-	}
-	collection.UpdateOne(context.TODO(), bson.M{"name": "customer"}, bson.M{"$set": bson.M{"count": cc.Count + 1}})
-	fmt.Println("customer count: ", cc.Count)
-	return cc.Count + 1
 }
 

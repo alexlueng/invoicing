@@ -96,7 +96,6 @@ func AddLevel(c *gin.Context) {
 		})
 		return
 	}
-	SetLastID("level")
 
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: serializer.CodeSuccess,

@@ -296,8 +296,6 @@ func GenSettlement(c *gin.Context) {
 	}
 	fmt.Println("Insert result: ", insertResult.InsertedID)
 
-	SetLastID("customer_settlement")
-
 	// 修改商品实例的状态
 	_, err = collection.UpdateMany(context.TODO(),
 		bson.M{"instance_id": bson.M{"$in": instanceIDs}},

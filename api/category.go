@@ -1,9 +1,7 @@
 package api
 
 import (
-	"context"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
 	"jxc/auth"
 	"jxc/models"
 	"jxc/serializer"
@@ -73,10 +71,8 @@ func AddCategory(c *gin.Context) {
 		})
 		return
 	}
-	SetLastID("category")
 
 	// 将图片保存到分类图片表中
-	collection := models.Client.Collection("category_image")
 	for _, url := range acSrv.URLs {
 		catImage := models.CategoryImage{
 			ComID:      claims.ComId,
@@ -86,7 +82,7 @@ func AddCategory(c *gin.Context) {
 			CloudPath:  url.CloudURL,
 			IsDelete:   false,
 		}
-		_, err := collection.InsertOne(context.TODO(), catImage)
+		err :=catImage.Add()
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
 				Code: serializer.CodeError,
@@ -94,7 +90,6 @@ func AddCategory(c *gin.Context) {
 			})
 			return
 		}
-		SetLastID("category_image")
 	}
 
 	c.JSON(http.StatusOK, serializer.Response{
@@ -150,10 +145,7 @@ func ListCategory(c *gin.Context) {
 	}
 
 	// 返回分类图片
-	collection := models.Client.Collection("category_image")
-	var images []models.CategoryImage
-
-	cur, err := collection.Find(context.TODO(), bson.D{{"com_id", claims.ComId}})
+	categoryImageResult, err := models.SelectCategoryImageByComID(claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -161,15 +153,9 @@ func ListCategory(c *gin.Context) {
 		})
 		return
 	}
-	for cur.Next(context.TODO()) {
-		var res models.CategoryImage
-		if err := cur.Decode(&res); err != nil {
-			c.JSON(http.StatusOK, serializer.Response{
-				Code: serializer.CodeError,
-				Msg:  "Can't decode category image",
-			})
-			return
-		}
+
+	var images []models.CategoryImage
+	for _, res := range categoryImageResult.CategoryImage {
 		images = append(images, res)
 	}
 
@@ -280,7 +266,6 @@ func UpdateCategory(c *gin.Context) {
 		return
 	}
 
-	collection := models.Client.Collection("category_image")
 	for _, url := range catSrv.URLs {
 		if url.CategoryID == 0 {
 			image := models.CategoryImage{
@@ -291,7 +276,7 @@ func UpdateCategory(c *gin.Context) {
 				CloudPath: url.CloudURL,
 				IsDelete:  false,
 			}
-			_, err := collection.InsertOne(context.TODO(), image)
+			err := image.Add()
 			if err != nil {
 				c.JSON(http.StatusOK, serializer.Response{
 					Code: serializer.CodeError,
@@ -299,7 +284,6 @@ func UpdateCategory(c *gin.Context) {
 				})
 				return
 			}
-			SetLastID("category_image")
 		}
 	}
 

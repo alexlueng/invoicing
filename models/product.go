@@ -4,6 +4,7 @@ import (
 	"context"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type Product struct {
@@ -54,6 +55,13 @@ type ResponseProductData struct {
 	CurrentPage   int         `json:"current_page"`
 }
 
+type ProductList struct {
+	ID           int64   `bson:"product_id"`
+	Product      string  `bson:"product"`
+	CusPrice     []int64 `bson:"cus_price"`
+	DefaultPrice float64 `bson:"default_price"`
+}
+
 func getProductCollection() *mongo.Collection {
 	return Client.Collection("product")
 }
@@ -70,3 +78,53 @@ func GetProductByID(com_id, product_id int64) (product *Product, err error) {
 	}
 	return
 }
+
+func UpdateQuantityByComIDAndProductID(comID, productID, amount int64) error {
+	_, err := getProductCollection().UpdateOne(context.TODO(),
+		bson.D{{"com_id", comID}, {"product_id", productID}},
+		bson.M{"$inc": bson.M{"num": amount}})
+	return err
+}
+
+func UpdateCusPriceByProductID(productID, customerID int64) error {
+	insertProduct := bson.M{"product_id": productID}
+	pushToArray := bson.M{"$addToSet": bson.M{"cus_price": customerID}}
+	_, err := getProductCollection().UpdateOne(context.TODO(), insertProduct, pushToArray)
+	return err
+}
+
+func UpdateProductDefaultPriceByProductID(productID int64, price float64) error {
+	filter := bson.M{}
+	filter["product_id"] = productID
+	_, err := getProductCollection().UpdateOne(context.TODO(), filter, bson.M{
+		"$set": bson.M{"default_price": price}})
+	return err
+}
+
+func SelectProductListByComID(comID int64, req CustomerProductPriceReq) ([]ProductList, error) {
+
+	option := options.Find()
+	option.SetLimit(int64(req.Size))
+	option.SetSkip((int64(req.Page) - 1) * int64(req.Size))
+	option.Projection = bson.M{"product_id": 1, "product": 1, "cus_price": 1, "default_price": 1, "_id": 0}
+
+	filter := bson.M{}
+	filter["com_id"] = comID
+
+	var allProducts []ProductList
+	cur, err := getProductCollection().Find(context.TODO(), filter, option)
+
+	if err != nil {
+		return nil, err
+	}
+	for cur.Next(context.TODO()) {
+		var result ProductList
+		err := cur.Decode(&result)
+		if err != nil {
+			return nil, err
+		}
+		allProducts = append(allProducts, result)
+	}
+	return allProducts, nil
+}
+

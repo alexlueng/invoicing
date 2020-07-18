@@ -10,11 +10,6 @@ import (
 
 // 用户验证器
 type UserRules struct {
-	// 用户名 不能为空 最短5位，最长20位
-	// 登录密码 不能为空 最短6位，最长20位
-	// 电话 不能为空 最短11位 最长
-	// 权限 不能为空
-	// 职务 可以为空
 
 	UserName string `form:"username" json:"username" binding:"required,min=5,max=20"`
 	Password string `form:"password" json:"password" binding:"required,min=8,max=20"`
@@ -139,21 +134,6 @@ func AddUser(user models.User) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	//return insertRes.InsertedID, nil
+
 	return "", errors.New("")
 }
-
-// 创建一条session值
-// func CreateSessionInfo(User models.User) string {
-// 	sessionInfo := models.SessionInfo{
-// 		UserId:    User.UserId,
-// 		Username:  User.Username,
-// 		ComId:     User.ComId,
-// 		Phone:     User.Phone,
-// 		Authority: User.Authority,
-// 		Position:  User.Position,
-// 	}
-
-// 	sessionInfoJson, _ := json.Marshal(&sessionInfo)
-// 	return string(sessionInfoJson)
-// }

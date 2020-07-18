@@ -187,54 +187,7 @@ func AddSupplierOrder(c *gin.Context) {
 }
 
 func UpdateSupplierOrder(c *gin.Context) {
-	/*
-		// 根据域名得到com_id
-		com, err := models.GetComIDAndModuleByDomain(strings.Split(c.Request.RemoteAddr, ":")[0])
-		//moduleID, _ := strconv.Atoi(com.ModuleId)
-		if err != nil || models.THIS_MODULE != int(com.ModuleId) {
-			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
-				Msg:  "域名错误",
-			})
-			return
-		}
 
-		updateSupplierOrder := models.SupplierOrder{}
-		data, _ := ioutil.ReadAll(c.Request.Body)
-		err = json.Unmarshal(data, &updateSupplierOrder)
-		if err != nil {
-			fmt.Println("unmarshall error: ", err)
-		}
-		collection := models.Client.Collection("supplier_order")
-
-		filter := bson.M{}
-		filter["com_id"] = com.ComId
-		filter["order_sn"] = updateSupplierOrder.OrderSN
-		// 更新记录
-		result, err := collection.UpdateOne(context.TODO(), filter, bson.M{
-			"$set": bson.M{"supplier_name": updateSupplierOrder.SupplierName,
-				"contacts":       updateSupplierOrder.Contacts,
-				"receiver_phone": updateSupplierOrder.Phone,
-				"amount":         updateSupplierOrder.Amount,
-				"Delivery":       updateSupplierOrder.Delivery,
-				"warehouse_id":   updateSupplierOrder.WarehouseID,
-				"receiver":       updateSupplierOrder.Receiver,
-				"price":          updateSupplierOrder.Price,
-				"extra_amount":   updateSupplierOrder.ExtraAmount,
-				"delivery_code":  updateSupplierOrder.DeliveryCode,}})
-		if err != nil {
-			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
-				Msg:  "更新失败",
-			})
-			return
-		}
-		fmt.Println("Update result: ", result.UpsertedID)
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: 200,
-			Msg:  "Supplier order update succeeded",
-		})
-	*/
 }
 
 type GetSupplierOrderSNService struct {
@@ -580,7 +533,7 @@ func AddCustomerPurchaseOrder(c *gin.Context) {
 			})
 			return
 		}
-
+		product_ids = append(product_ids, order.ProductID)
 		// 获取提交的商品进货价
 		purchasePrice, err := service.FindProductPurchasePrice(product_ids, claims.ComId)
 		if err != nil {
@@ -1150,7 +1103,6 @@ func SplitSupplierSubOrder(c *gin.Context) {
 		})
 		return
 	}
-	SetLastID("supplier_sub_order")
 
 	// 更新原订单未接收的数量
 	_, err = collection.UpdateOne(context.TODO(), bson.D{{"com_id", claims.ComId},

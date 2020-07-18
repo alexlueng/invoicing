@@ -13,6 +13,10 @@ import (
 )
 
 // 消息提醒的接口
+// TODO：可以设置短信提醒，邮件提醒
+
+
+
 type UserMessageService struct {
 	UserID int64 `json:"user_id"`
 }
@@ -250,7 +254,6 @@ func OrderMessages(c *gin.Context) {
 		message.NotifyWay = "web"
 		message.CreateAt = time.Now().Unix()
 
-		SetLastID("message")
 		messageList = append(messageList, message)
 
 	}
@@ -361,7 +364,6 @@ func OrderNotify(status int, expireDay int, messType int, filterTime string, ord
 		message.NotifyWay = "web"
 		message.CreateAt = time.Now().Unix()
 
-		SetLastID("message")
 		messageList = append(messageList, message)
 
 	}

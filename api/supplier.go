@@ -130,7 +130,6 @@ func AddSuppliers(c *gin.Context) {
 		})
 		return
 	}
-	SetLastID("supplier")
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: serializer.CodeSuccess,
 		Msg:  "Supplier create succeeded",

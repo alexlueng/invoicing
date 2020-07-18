@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -42,8 +41,6 @@ func AllCustomerOrders(c *gin.Context) {
 	//设置搜索规则
 	filter := models.GetCustomerOrderParam(req, claims.ComId)
 
-	collection := models.Client.Collection("customer_order")
-
 	orderIDs := []int64{}
 
 	order := models.CustomerOrder{}
@@ -53,14 +50,12 @@ func AllCustomerOrders(c *gin.Context) {
 		orderIDs = append(orderIDs, order.OrderId)
 	}
 
-	allSubOrders := []models.CustomerSubOrder{}
-	collection = models.Client.Collection("customer_suborder")
 	subOrderFilter := bson.M{}
 	subOrderFilter["com_id"] = claims.ComId
 	if len(orderIDs) > 0 {
 		subOrderFilter["order_id"] = bson.M{"$in": orderIDs} // TODO: 要判断orderIDs里面是否有值，不然程序会报错
 	}
-	cur, err := collection.Find(context.TODO(), subOrderFilter)
+	customerSubOrderList, err := models.SelectCustomerSubOrderWithCondition(subOrderFilter)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -69,15 +64,8 @@ func AllCustomerOrders(c *gin.Context) {
 		return
 	}
 
-	for cur.Next(context.TODO()) {
-		var res models.CustomerSubOrder
-		if err := cur.Decode(&res); err != nil {
-			c.JSON(http.StatusOK, serializer.Response{
-				Code: serializer.CodeError,
-				Msg:  err.Error(),
-			})
-			return
-		}
+	allSubOrders := []models.CustomerSubOrder{}
+	for _, res := range customerSubOrderList.CustomerSubOrder {
 		allSubOrders = append(allSubOrders, res)
 	}
 	for _, subItem := range allSubOrders {
@@ -89,7 +77,7 @@ func AllCustomerOrders(c *gin.Context) {
 	}
 
 	//查询的总数
-	total, _ := models.Client.Collection("customer_order").CountDocuments(context.TODO(), filter)
+	total, _ := models.CountCustomerOrder(filter)
 
 	// 返回查询到的总数，总页数
 	resData := models.ResponseCustomerOrdersData{}
@@ -161,17 +149,8 @@ func AddCustomerOrder(c *gin.Context) {
 		})
 		return
 	}
-	err = SetLastID("customer_order")
-	if err != nil {
-		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "创建订单失败",
-		})
-		return
-	}
 	var subOrders []interface{}
 
-	collection := models.Client.Collection("customer_suborder")
 	// 把订单中的每个子项插入到客户订单实例表中
 	for _, item := range order.Products {
 		var result models.CustomerSubOrder
@@ -196,10 +175,9 @@ func AddCustomerOrder(c *gin.Context) {
 		result.IsPrepare = false // 备货未完成
 
 		subOrders = append(subOrders, result)
-		SetLastID("sub_order")
 	}
 
-	_, err = collection.InsertMany(context.TODO(), subOrders)
+	err = models.MultiplyInsertCustomerSubOrder(subOrders)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -209,11 +187,8 @@ func AddCustomerOrder(c *gin.Context) {
 	}
 
 	// 修改商品的出售数量
-	collection = models.Client.Collection("product")
 	for _, item := range order.Products {
-		_, err := collection.UpdateOne(context.TODO(),
-			bson.D{{"com_id", claims.ComId}, {"product_id", item.ProductID}},
-			bson.M{"$inc": bson.M{"num": item.Quantity}})
+		err := models.UpdateQuantityByComIDAndProductID(claims.ComId, item.ProductID, item.Quantity)
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
 				Code: -1,
@@ -258,16 +233,12 @@ func CheckCustomerPrice(c *gin.Context) {
 	filter["com_id"] = claims.ComId // need to get com id from middleware
 	filter["customer_id"] = orderProducts.CustomerID
 
-	collection := models.Client.Collection("customer_product_price")
 	for _, product_id := range orderProducts.ProductsID {
 		filter["product_id"] = product_id
-		var product models.CustomerProductPrice
-		err := collection.FindOne(context.TODO(), filter).Decode(&product)
+		product, err := models.SelectCustomerProductPriceByCondition(filter)
 		if err != nil {
 			// 说明客户商品价格表中没有这条记录,需要从商品表中找到默认价格
-			var p models.Product
-			c := models.Client.Collection("product")
-			err := c.FindOne(context.TODO(), bson.D{{"product_id", product_id}}).Decode(&p)
+			p, err := models.GetProductByID(claims.ComId, product_id)
 			if err != nil {
 				fmt.Println("Can't find default product price: ", err)
 			}
@@ -284,19 +255,14 @@ func CheckCustomerPrice(c *gin.Context) {
 			cpp.IsValid = true
 			cpp.CreateAt = time.Now().Unix()
 
-			cppCollection := models.Client.Collection("customer_product_price")
-			_, err = cppCollection.InsertOne(context.TODO(), cpp)
+			err = cpp.Add()
 			if err != nil {
 				fmt.Println("err while insert result: ", err)
 				return
 			}
 
 			// 更新商品客户列表，把客户id追加到cus_price数组中
-			collection = models.Client.Collection("product")
-			insertProduct := bson.M{"product_id": cpp.ProductID}
-
-			pushToArray := bson.M{"$addToSet": bson.M{"cus_price": cpp.CustomerID}}
-			_, err = collection.UpdateOne(context.TODO(), insertProduct, pushToArray)
+			err = models.UpdateCusPriceByProductID(cpp.ProductID, cpp.CustomerID)
 			if err != nil {
 				fmt.Println("err while insert result: ", err)
 				return
@@ -329,35 +295,24 @@ func CustomerPrice(c *gin.Context) {
 		return
 	}
 
-	var prices []models.CustomerOrderProductPrice
-
-	collection := models.Client.Collection("customer_product_price")
 	filter := bson.M{}
-
-	//filter["com_id"] = c.GetInt64("com_id")
-
 	// 从客户商品价格表中找到对应商品的客户价格
 	// 如果没有找到，则将价格设置为商品的默认价格
-
 	filter["com_id"] = claims.ComId
 	filter["product_id"] = bson.M{"$in": orderProducts.ProductsID}
 	filter["customer_id"] = bson.M{"$eq": orderProducts.CustomerID}
 	//fmt.Println("filter: ", filter)
-	cur, err := collection.Find(context.TODO(), filter)
+	curtomerPriceData, err := models.SelectMultiplyCustomerOrderProductPriceByConditoin(filter)
 	if err != nil {
 		fmt.Println("err while finding record: ", err)
 		return
 	}
-	for cur.Next(context.TODO()) {
 
-		var result models.CustomerOrderProductPrice
-		if err := cur.Decode(&result); err != nil {
-			fmt.Println("error while decoding: ", err)
-			return
-		}
+	var prices []models.CustomerOrderProductPrice
+	for _, result := range curtomerPriceData.CustomerOrderProductPriceList {
 		prices = append(prices, result)
 	}
-	//fmt.Println("get data: ", prices)
+
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Msg:  "Get customer price succeeded",
@@ -377,13 +332,8 @@ func UpdateCustomerOrder(c *gin.Context) {
 	if err != nil {
 		fmt.Println("unmarshall error: ", err)
 	}
-	collection := models.Client.Collection("customer_order")
 
-	filter := bson.M{}
-	filter["com_id"] = claims.ComId
-	filter["order_sn"] = updateCustomerOrder.OrderSN
-	// 更新记录
-	result, err := collection.UpdateOne(context.TODO(), filter, bson.M{
+	var updateCol = bson.M{
 		"$set": bson.M{"customer_name": updateCustomerOrder.CustomerName,
 			"contacts":       updateCustomerOrder.Contacts,
 			"receiver_phone": updateCustomerOrder.Phone,
@@ -393,7 +343,14 @@ func UpdateCustomerOrder(c *gin.Context) {
 			"receiver":       updateCustomerOrder.Receiver,
 			"price":          updateCustomerOrder.TotalPrice,
 			"extra_amount":   updateCustomerOrder.ExtraAmount,
-			"delivery_code":  updateCustomerOrder.DeliveryCode,}})
+			"delivery_code":  updateCustomerOrder.DeliveryCode,}}
+
+	filter := bson.M{}
+	filter["com_id"] = claims.ComId
+	filter["order_sn"] = updateCustomerOrder.OrderSN
+
+	// 更新记录
+	result, err := models.UpdateCustomerOrderByCondition(filter, updateCol)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -422,13 +379,7 @@ func DeleteCustomerOrder(c *gin.Context) {
 	order_sn := GetCustomerOrderSNService{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	_ = json.Unmarshal(data, &order_sn)
-
-	filter := bson.M{}
-	filter["com_id"] = claims.ComId
-	filter["order_sn"] = order_sn.OrderSN
-
-	collection := models.Client.Collection("customer_order")
-	deleteResult, err := collection.DeleteOne(context.TODO(), filter)
+	deleteResult, err := models.DeleteCustomerOrderByComIDAndOrderSN(claims.ComId, order_sn.OrderSN)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: -1,
@@ -456,7 +407,6 @@ func CustomerOrderDetail(c *gin.Context) {
 	claims, _ := auth.ParseToken(token)
 	fmt.Println("ComID: ", claims.ComId)
 
-	order := models.CustomerOrder{}
 	order_sn := GetCustomerOrderSNService{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	err := json.Unmarshal(data, &order_sn)
@@ -465,12 +415,10 @@ func CustomerOrderDetail(c *gin.Context) {
 	}
 
 	filter := bson.M{}
-	//filter["com_id"] = com.ComId
 	filter["com_id"] = claims.ComId
 	filter["order_sn"] = order_sn.OrderSN
 
-	collection := models.Client.Collection("customer_order")
-	err = collection.FindOne(context.TODO(), filter).Decode(&order)
+	order, err := models.SelectCustomerOrderByComIDAndOrderSN(claims.ComId, order_sn.OrderSN)
 	if err != nil {
 		fmt.Println("error found while find order detail: ", err)
 		c.JSON(http.StatusOK, serializer.Response{
@@ -480,19 +428,14 @@ func CustomerOrderDetail(c *gin.Context) {
 		return
 	}
 
-	var suborders []models.CustomerSubOrder
-	collection = models.Client.Collection("customer_suborder")
-	cur, err := collection.Find(context.TODO(), filter)
+	suborderList, err := models.SelectCustomerSubOrderByComIDAndOrderSN(claims.ComId, order_sn.OrderSN)
 	if err != nil {
 		fmt.Println("Can't not find customer suborder: ", err)
 		return
 	}
-	for cur.Next(context.TODO()) {
-		var res models.CustomerSubOrder
-		if err := cur.Decode(&res); err != nil {
-			fmt.Println("error decoding suborder")
-			return
-		}
+
+	var suborders []models.CustomerSubOrder
+	for _, res :=range suborderList.CustomerSubOrder {
 		suborders = append(suborders, res)
 	}
 
@@ -526,24 +469,13 @@ func UnDealOrders(c *gin.Context) {
 		return
 	}
 
-	collection := models.Client.Collection("goods_instance")
-	filter := bson.M{}
-	filter["com_id"] = claims.ComId
-	filter["dest_id"] = 1
-	filter["status"] = status.Status
-
 	var result []models.GoodsInstance
-	cur, err := collection.Find(context.TODO(), filter)
+	goodsInstanceList, err := models.SelectGoodsInstanceByComIDAndDestIDAndStatus(claims.ComId, 1, status.Status)
 	if err != nil {
 		fmt.Println("Can't find instances: ", err)
 		return
 	}
-	for cur.Next(context.TODO()) {
-		var res models.GoodsInstance
-		if err := cur.Decode(&res); err != nil {
-			fmt.Println("Can't decode instance: ", err)
-			return
-		}
+	for _, res := range goodsInstanceList.GoodsInstance {
 		result = append(result, res)
 	}
 
@@ -570,7 +502,7 @@ func PrepareStock(c *gin.Context) {
 		fmt.Println("Can't get com_id")
 		return
 	}
-	//claims.(auth.Claims).ComId
+
 	var ps PrepareStockService
 	if err := c.ShouldBindJSON(&ps); err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
@@ -579,11 +511,8 @@ func PrepareStock(c *gin.Context) {
 		})
 		return
 	}
-	collection := models.Client.Collection("customer_suborder")
-	filter := bson.M{}
-	filter["com_id"] = claims.(*auth.Claims).ComId
-	filter["sub_order_id"] = ps.SubOrderID
-	updateResult, err := collection.UpdateOne(context.TODO(), filter, bson.M{"$set" : bson.M{"is_prepare": true}})
+
+	updateResult, err := models.UpdateCustomerSubOrderPrepared(claims.(*auth.Claims).ComId, ps.SubOrderID)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: 200,

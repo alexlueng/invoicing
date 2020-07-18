@@ -18,6 +18,32 @@ const (
 	INVALID
 )
 
+// 预付订单 可存储在Redis中，待订单确认后再写入mongodb
+type PreOrder struct {
+	ComID        int64                       `json:"com_id" bson:"com_id"`
+	OrderID      int64                       `json:"order_id" bson:"order_id"`
+	OrderSN      string                      `json:"order_sn" bson:"order_sn"` // 订单号
+	CustomerID   int64                       `json:"customer_id" bson:"customer_id"`
+	CustomerName string                      `json:"customer_name" bson:"customer_name"`
+	AddressID    int64                       `json:"address_id" bson:"address_id"`     // 收货地址
+	DeliveryID   int64                       `json:"delivery_id" bson:"delivery_id"`   // 配送方式
+	DeliveryFee  float64                     `json:"delivery_fee" bson:"delivery_fee"` // 配送费
+	Items        []CustomerOrderProductsInfo `json:"items" bson:"items"`               // 订单商品项
+	TotalPrice   float64                     `json:"total_price" bson:"total_price"`   // 总价
+	PayWay       int64                       `json:"pay_way" bson:"pay_way"`           // 支付方式
+	Comment      string                      `json:"comment" bson:"comment"`           // 备注
+	FeedBack     string                      `json:"evaluation" bson:"evaluation"`     // 订单评价
+	Status       int64                       `json:"status" bson:"status"`             // 订单状态
+	IsPay        bool                        `json:"is_pay" bson:"is_pay"`             // 是否支付
+	IsCancel     bool                        `json:"is_cancel" bson:"is_cancel"`       // 是否取消
+	IsDelete     bool                        `json:"is_delete" bson:"is_delete"`       // 是否删除
+	CreateAt     int64                       `json:"create_at" bson:"create_at"`       // 创建时间
+	ExpireAt     int64                       `json:"create_at" bson:"expire_at"`       // 过期时间
+	PayAt        int64                       `json:"pay_at" bson:"pay_at"`             // 支付时间
+	ShipAt       int64                       `json:"delivery_at" bson:"delivery_at"`   // 发货时间
+	FinishAt     int64                       `json:"finish_at" bson:"finish_at"`       // 完成时间
+}
+
 type CustomerOrder struct {
 	ComID                 int64                       `json:"com_id" bson:"com_id"`
 	OrderId               int64                       `json:"order_id" bson:"order_id"`
@@ -45,37 +71,6 @@ type CustomerOrder struct {
 	OperatorID            int64                       `json:"operator_id"`                  // 本次订单的操作人，对应user_id
 	TransportationExpense float64                     `json:"transportation_expense"`       // 邮费 此项如果为0，则为包邮，此字段不能为负数，应该对它进行检查，或者设为无符号数
 	IsPrepare             bool                        `json:"is_prepare" bson:"is_prepare"` // 备货完成
-}
-
-// 销售订单实例表结构
-// 销售子订单
-type CustomerSubOrder struct {
-	SubOrderId      int64   `json:"sub_order_id" bson:"sub_order_id"` // 子订单id
-	SubOrderSn      string  `json:"sub_order_sn" bson:"sub_order_sn"` // 子订单号
-	ComID           int64   `json:"com_id" bson:"com_id"`             // 公司id
-	OrderSN         string  `json:"order_sn" bson:"order_sn"`         // 订单号
-	OrderId         int64   `json:"order_id" bson:"order_id"`         // 订单id
-	CustomerID      int64   `json:"customer_id" bson:"customer_id"`
-	CustomerName    string  `json:"customer_name" bson:"customer_name"`
-	ProductID       int64   `json:"product_id" bson:"product_id"`
-	Product         string  `json:"product" bson:"product"`                   // 商品名称
-	Contacts        string  `json:"contacts" bson:"contacts"`                 //客户的联系人
-	Receiver        string  `json:"receiver" bson:"receiver"`                 //本单的收货人
-	ReceiverPhone   string  `json:"receiver_phone" bson:"receiver_phone"`     //本单的收货人电话
-	Price           float64 `json:"price" bson:"price"`                       //本项价格
-	Amount          int64   `json:"amount" bson:"amount"`                     //本项购买总数量
-	WarehouseAmount int64   `json:"warehouse_amount" bson:"warehouse_amount"` // 仓库发货的数量
-	SupplierAmount  int64   `json:"supplier_amount" bson:"supplier_amount"`   // 供应商发货的数量
-	ExtraAmount     float64 `json:"extra_amount" bson:"extra_amount"`         //本单优惠或折扣金额
-	Delivery        string  `json:"delivery" bson:"delivery"`                 // 快递方式
-	DeliveryCode    string  `json:"delivery_code" bson:"delivery_code"`       // 快递号
-	OrderTime       int64   `json:"order_time" bson:"order_time"`             // 下单时间
-	ShipTime        int64   `json:"ship_time" bson:"ship_time"`               // 发货时间
-	ConfirmTime     int64   `json:"confirm_time" bson:"confirm_time"`         // 确认订单时间
-	PayTime         int64   `json:"pay_time" bson:"pay_time"`                 // 订单结算时间
-	FinishTime      int64   `json:"finish_time" bson:"finish_time"`           // 供应结束时间
-	Status          int64   `json:"status" bson:"status"`                     // 订单状态
-	IsPrepare       bool    `json:"is_prepare" bson:"is_prepare"`             // 是否备货完成
 }
 
 // 获取最新的主键ID
@@ -144,13 +139,6 @@ type OrderProducts struct {
 	ProductsID   []int64 `json:"products_id"`
 	CustomerID   int64   `json:"customer_id"`
 	CustomerName string  `json:"customer_name"`
-}
-
-// 接收查找到的对应客户的价格
-type CustomerOrderProductPrice struct {
-	ProductID   int64   `json:"product_id" bson:"product_id"`
-	ProductName string  `json:"product_name" bson:"product_name"`
-	Price       float64 `json:"price" bson:"price"`
 }
 
 type ResponseCustomerOrdersData struct {
@@ -236,3 +224,31 @@ func GetCustomerOrderParam(req CustomerOrderReq, com_id int64) bson.M {
 	filter["com_id"] = com_id
 	return filter
 }
+
+func CountCustomerOrder(filter bson.M) (int64, error) {
+	return getCustomerOrderCollection().CountDocuments(context.TODO(), filter)
+}
+
+func UpdateCustomerOrderByCondition(filter, updates bson.M) (*mongo.UpdateResult, error) {
+	return getCustomerOrderCollection().UpdateOne(context.TODO(), filter, updates);
+}
+
+func DeleteCustomerOrderByComIDAndOrderSN(comID int64, orderSN string) (*mongo.DeleteResult, error) {
+	filter := bson.M{}
+	filter["com_id"] = comID
+	filter["order_sn"] = orderSN
+	return getCustomerOrderCollection().DeleteOne(context.TODO(), filter)
+}
+
+func SelectCustomerOrderByComIDAndOrderSN(comID int64, orderSN string) (CustomerOrder, error) {
+	order := CustomerOrder{}
+	filter := bson.M{}
+	filter["com_id"] = comID
+	filter["order_sn"] = orderSN
+	err := getCustomerOrderCollection().FindOne(context.TODO(), filter).Decode(&order)
+	return order, err
+}
+
+
+
+
