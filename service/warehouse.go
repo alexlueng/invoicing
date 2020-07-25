@@ -31,7 +31,7 @@ func FindOneWarehouse(warehouse_id, com_id int64) (*models.Warehouse, error) {
 
 // 如果没有提交仓库id则获取公司所有仓库信息
 // 如果有则获取所需部分
-func FindWarehouse(warehouse_id int64, com_id int64) (map[int64]models.Warehouse, error) {
+func FindWarehouse(com_id int64) (map[int64]models.Warehouse, error) {
 	collection := models.Client.Collection("warehouse")
 	var warehouse models.Warehouse
 	warehouseArr := make(map[int64]models.Warehouse) // map[Warehouse_id]models.Warehouse

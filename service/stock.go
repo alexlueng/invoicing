@@ -51,8 +51,11 @@ type WarehouseData struct {
 * @return map[商品id]WosProduct，error
 * @deprecated
  */
-func GetProductInfoOfWarehouse(product_id int64, com_id int64, warehouse_id int64) (map[int64]WarehouseProduct, error) {
-	// 商品的直接统计信息放在这 map[product_id]WosProduct
+
+
+
+func GetProductInfoOfWarehouse(product_id int64, com_id int64) (map[int64]WarehouseProduct, error) {
+
 	productCount := make(map[int64]WarehouseProduct)
 
 	var instance models.GoodsInstance
@@ -66,7 +69,7 @@ func GetProductInfoOfWarehouse(product_id int64, com_id int64, warehouse_id int6
 	filter["place_type"] = bson.M{"$ne": 0}
 
 	// 获取仓库信息
-	warehouse, err := FindWarehouse(warehouse_id, com_id)
+	warehouse, err := FindWarehouse(com_id)
 
 	cur, err := collection.Find(context.TODO(), filter)
 	if err != nil {

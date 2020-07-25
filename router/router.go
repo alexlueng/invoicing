@@ -128,10 +128,10 @@ func InitRouter() *gin.Engine {
 			v1.POST("/product/delete", api.DeleteProduct)                                   // 删除商品
 			v1.POST("/product/addprice", api.AddPrice)                                      //添加供应商价格
 			v1.POST("/product/detail", middleware.GetComIDAndModuleID(), api.ProductDetail) // 商品详情
-			v1.POST("/product/supplierlist", api.SupplierListOfProducts)
-			v1.GET("/product/img_load_sign", api.GetYpyunSign)  //获取又拍云上传签名
-			v1.POST("/product/preferred", api.PreferredProduct) // 设置为优选商品
-			v1.POST("/product/recommand", api.RecommandProduct) // 设置为推荐商品
+			v1.POST("/product/supplierlist", api.SupplierListOfProducts)                    // 供应商订单列表
+			v1.GET("/product/img_load_sign", api.GetYpyunSign)                              //获取又拍云上传签名
+			v1.POST("/product/preferred", api.PreferredProduct)                             // 设置为优选商品
+			v1.POST("/product/recommand", api.RecommandProduct)                             // 设置为推荐商品
 
 			// 商品分类
 			v1.POST("/product/category/create", api.AddCategory)
@@ -200,6 +200,8 @@ func InitRouter() *gin.Engine {
 				wxApp.POST("/delete_cart", wxapp.DeleteCartItem)            // 删除购物车项
 				wxApp.POST("/summit_order", wxapp.SummitOrder)              // 提交订单
 				wxApp.POST("/address", wxapp.UserAddresses)                 // 用户地址
+				wxApp.POST("/callback", wxapp.WxpayCallback)                // 微信支付回调接口
+				wxApp.POST("/orders", wxapp.AllOrders)                      // 所有订单状态查询
 
 			}
 

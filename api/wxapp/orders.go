@@ -2,23 +2,24 @@ package wxapp
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/hex"
+	"errors"
 	"fmt"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"io/ioutil"
+	"jxc/conf"
 	"net/http"
-	"sort"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"gitee.com/xiaochengtech/wechat/util"
+	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson"
 	"jxc/api"
 	"jxc/auth"
 	"jxc/models"
 	"jxc/serializer"
-
-	"gitee.com/xiaochengtech/wechat/util"
-	"gitee.com/xiaochengtech/wechat/wxpay"
-	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
 )
 
 // 用户提交订单并处理
@@ -34,24 +35,28 @@ import (
 /*
 	用户订单状态：
 		待支付 1
-		已超时 2
-		待送货 3
-		待收货 4
-		待评价 5
-		退换货
+		待送货 2
+		待收货 3
+		待评价 4
+		退换货 5
+		已超时 6
 */
 
 // 订单商品项
 type OrderItem struct {
+	ItemID      int64   `json:"item_id"`
 	ProductID   int64   `json:"product_id"`
 	ProductName string  `json:"product_name"`
 	Price       float64 `json:"price"`
 	Num         int64   `json:"num"`
+	Thumbnail   string  `json:"thumbnail"`
 }
 
 // 用户提交订单数据
 type UserSubmitOrderService struct {
-	CustomerID   int64       `json:"customer_id"`   // 客户ID
+	CustomerID   int64       `json:"customer_id"`            // 客户ID
+	CartID       int64       `json:"cart_id" bson:"cart_id"` // 购物车ID
+	OpenID       string      `json:"open_id" bson:"open_id"`
 	AddressID    int64       `json:"address_id"`    // 地址
 	DeliveryID   int64       `json:"delivery_id"`   // 配送方式 物流公司 自提
 	Items        []OrderItem `json:"items"`         // 商品项
@@ -67,6 +72,33 @@ type CustomerOrderService struct {
 	CustomerID int64  `json:"customer_id"`
 	OrderID    int64  `json:"order_id"`
 	OrderSN    string `json:"order_sn"`
+	Status     int64  `json:"status"`
+}
+
+// 返回给前端调起微信支付的数据
+type PrepayOrderResp struct {
+	AppId     string `json:"app_id"`
+	Timestamp string `json:"timestamp"`
+	NonceStr  string `json:"nonce_str"`
+	Package   string `json:"package"`
+	SignType  string `json:"sign_type"`
+	PaySign   string `json:"pay_sign"`
+	TotalFee  int    `json:"total_fee"`
+	OrderNo   string `json:"order_no"`
+}
+
+func getWechatClient() *api.WechatClient {
+	config := api.WechatConfig{
+		AppId:    os.Getenv("APPID"),
+		SubAppId: "",
+		MchId:    os.Getenv("MCHID"),
+		SubMchId: "",
+	}
+
+	apiKey := os.Getenv("APIKEY") // 微信支付上设置的API Key
+
+	wechatClient := api.NewWechatClient(true, api.ServiceTypeNormalDomestic, apiKey, "", config)
+	return wechatClient
 }
 
 // 返回用户的收货地址
@@ -146,8 +178,17 @@ type MiniappPayResp struct {
 // TODO: 向微信服务器生成预支付订单
 func SummitOrder(c *gin.Context) {
 
-	token := c.GetHeader("Access-Token")
-	claims, _ := auth.ParseToken(token)
+	// 获取请求的域名，可以得知所属公司
+	domain := c.Request.Header.Get("Origin")
+	domain = strings.Split(domain, ":")[1]
+	com, err := models.GetComIDAndModuleByDomain(domain[len("//"):])
+	if err != nil || models.THIS_MODULE != com.ModuleId {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  err.Error(),
+		})
+		return
+	}
 
 	var userSubmitOrderSrv UserSubmitOrderService
 	if err := c.ShouldBindJSON(&userSubmitOrderSrv); err != nil {
@@ -159,64 +200,70 @@ func SummitOrder(c *gin.Context) {
 	}
 
 	preOrder := models.PreOrder{
-		ComID:       claims.ComId,
-		CustomerID:  userSubmitOrderSrv.CustomerID,
-		DeliveryID:  userSubmitOrderSrv.DeliveryID,
-		AddressID:   userSubmitOrderSrv.AddressID,
-		OrderID:     api.GetLastID("orders"),
-		OrderSN:     GetOrderSN(),
-		DeliveryFee: userSubmitOrderSrv.DeliveryFee,
-		TotalPrice:  userSubmitOrderSrv.TotalPrice,
-		PayWay:      userSubmitOrderSrv.PayWay,
-		Comment:     userSubmitOrderSrv.Comment,
-		IsPay:       false,
-		IsCancel:    false,
-		IsDelete:    false,
-		CreateAt:    time.Now().Unix(),
-		ExpireAt:    time.Now().Unix() + 60*10,
-		Status:      1, // 未支付
+		ComID:        com.ComId,
+		CustomerID:   userSubmitOrderSrv.CustomerID,
+		DeliveryID:   userSubmitOrderSrv.DeliveryID,
+		CustomerName: userSubmitOrderSrv.CustomerName,
+		AddressID:    1, // 测试 暂时写死
+		OrderID:      api.GetLastID("customer_order"),
+		OrderSN:      GetOrderSN(com.ComId, userSubmitOrderSrv.CustomerID),
+		DeliveryFee:  userSubmitOrderSrv.DeliveryFee,
+		TotalPrice:   1, // 测试 暂时写死
+		PayWay:       userSubmitOrderSrv.PayWay,
+		Comment:      userSubmitOrderSrv.Comment,
+		IsPay:        false,
+		IsCancel:     false,
+		IsDelete:     false,
+		CreateAt:     time.Now().Unix(),
+		ExpireAt:     time.Now().Unix() + 60*10,
+		Status:       1, // 未支付
 	}
 
+	// 删除购物车中已经下单的商品
+	collection := models.Client.Collection("cart_item")
+	filter := bson.M{}
+	filter["com_id"] = com.ComId
+	filter["cart_id"] = userSubmitOrderSrv.CartID
+	filter["open_id"] = userSubmitOrderSrv.OpenID
 	for _, item := range userSubmitOrderSrv.Items {
 		product := models.CustomerOrderProductsInfo{
 			ProductID: item.ProductID,
 			Product:   item.ProductName,
 			Price:     item.Price,
 			Quantity:  item.Num,
+			Thumbnail: item.Thumbnail,
 		}
 		preOrder.Items = append(preOrder.Items, product)
+		filter["item_id"] = item.ItemID
+		filter["product_id"] = item.ProductID
+		_, err := collection.UpdateOne(context.TODO(), filter, bson.M{"$set": bson.M{"is_delete": true}})
+		if err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Params error",
+			})
+			return
+		}
 	}
 
 	// 调用微信统一下单接口unifiy_order
-	config := wxpay.Config{
-		AppId:    "",
-		SubAppId: "",
-		MchId:    "",
-		SubMchId: "",
-	}
+	wechatClient := getWechatClient()
 
-	apiKey := "xxxxxxxx" // 微信支付上设置的API Key
-
-	client := wxpay.NewClient(false, wxpay.ServiceTypeNormalDomestic, apiKey, "", config)
-	fmt.Println(client)
-
-	body := wxpay.UnifiedOrderBody{
-		AppId:          "",
-		MchId:          "",
+	body := api.UnifiedOrderBody{
 		NonceStr:       util.RandomString(32),
 		Sign:           "",
-		Body:           "",
+		Body:           "中民福康-生鲜下单",
 		OutTradeNo:     preOrder.OrderSN,
-		TotalFee:       0,
-		SpbillCreateIP: "",
-		NotifyUrl:      "",
-		TradeType:      wxpay.TradeTypeJsApi,
+		TotalFee:       1,
+		SpbillCreateIP: "119.123.199.102",
+		NotifyUrl:      os.Getenv("NOTIFYURL"),
+		TradeType:      api.TradeTypeJsApi,
+		OpenId:         userSubmitOrderSrv.OpenID,
 	}
 
-	//body.Sign = wxpaySign(body, apiKey)
-
-	resp, err := client.UnifiedOrder(body)
+	resp, err := wechatClient.UnifiedOrder(body)
 	if err != nil {
+		fmt.Println("Unify order error: ", err.Error())
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
 			Msg:  "UnifiedOrder request error",
@@ -236,53 +283,131 @@ func SummitOrder(c *gin.Context) {
 			return
 		}
 
+		order, subOrders, err := models.PreOrderToCustomerOrderAndSubOrder(preOrder)
+		if err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  "Can't make orders",
+			})
+			return
+		}
+
+		err = order.Insert()
+		if err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  err.Error(),
+			})
+			return
+		}
+		var iSubs []interface{}
+		for _, sub := range subOrders {
+			o, ok := sub.(models.CustomerSubOrder)
+			if ok {
+
+			}
+			o.SubOrderId = api.GetLastID("sub_order")
+			o.SubOrderSn = conf.IdWorker.GetOrderSN(order.ComID, order.CustomerID)
+			iSubs = append(iSubs, o)
+		}
+		err = models.MultiplyInsertCustomerSubOrder(iSubs)
+		if err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  err.Error(),
+			})
+			return
+		}
+
+		// 返回给小程序调起微信支付的数据
+		appletResp := PrepayOrderResp{
+			AppId:     os.Getenv("APPID"),
+			Timestamp: strconv.FormatInt(preOrder.CreateAt, 10),
+			NonceStr:  body.NonceStr,
+			Package:   "prepay_id=" + resp.PrepayId,
+			SignType:  "MD5",
+			PaySign:   "",
+			TotalFee:  body.TotalFee,
+			OrderNo:   body.OutTradeNo,
+		}
+
+		appletResp.PaySign = api.GetAppletPaySign(
+			resp.AppId,
+			appletResp.NonceStr,
+			appletResp.Package,
+			appletResp.SignType,
+			appletResp.Timestamp,
+			os.Getenv("APIKEY"))
+
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeSuccess,
 			Msg:  "生成预付订单，请尽快支付",
+			Data: appletResp,
 		})
+		return
 	}
-
+	c.JSON(http.StatusOK, serializer.Response{
+		Code: serializer.CodeError,
+		Msg:  "订单失败，请重试",
+	})
 }
 
-// 微信支付计算签名的函数
-func wxpaySign(mReq map[string]interface{}, key string) (sign string) {
-	fmt.Println("微信支付签名计算, API KEY:", key)
-	//STEP 1, 对key进行升序排序.
-	sorted_keys := make([]string, 0)
-	for k, _ := range mReq {
-		sorted_keys = append(sorted_keys, k)
+// 微信支付回调函数
+func WxpayCallback(c *gin.Context) {
+
+	//配置请求头
+	c.Header("Access-Control-Allow-Origin", "*")
+	body, err := ioutil.ReadAll(c.Request.Body)
+	if err != nil {
+		fmt.Println("failed to read http body: ", err)
+		return
 	}
 
-	sort.Strings(sorted_keys)
+	wechatClient := getWechatClient()
+	resp, err := wechatClient.NotifyPay(HandlePayNotify, body)
 
-	//STEP2, 对key=value的键值对用&连接起来，略过空值
-	var signStrings string
-	for _, k := range sorted_keys {
-		value := fmt.Sprintf("%v", mReq[k])
-		if value != "" {
-			signStrings = signStrings + k + "=" + value + "&"
-		}
-	}
-
-	//STEP3, 在键值对的最后加上key=API_KEY
-	if key != "" {
-		signStrings = signStrings + "key=" + key
-	}
-	//STEP4, 进行MD5签名并且将所有字符转为大写.
-	md5Ctx := md5.New()
-	md5Ctx.Write([]byte(signStrings))
-	cipherStr := md5Ctx.Sum(nil)
-	upperSign := strings.ToUpper(hex.EncodeToString(cipherStr))
-
-	fmt.Println("Get wxpay sign: ", upperSign)
-
-	return upperSign
+	// 向微信返回
+	c.String(http.StatusOK, resp)
 }
 
+// 根据回调结果来处理订单
+func HandlePayNotify(body api.NotifyPayBody) error {
+
+	if body.ReturnCode == "FAIL" {
+		fmt.Printf("ErrorCode %s and ErrorCodeDes %s", body.ErrCode, body.ErrCodeDes)
+		payFailErr := errors.New("用户支付失败")
+		return payFailErr
+	}
+
+	// 用户支付成功，收款后将订单状态改为待送货
+	orderSN := body.OutTradeNo
+	fmt.Println("Pay orderSN: ", orderSN)
+	collection := models.Client.Collection("customer_order")
+	filter := bson.M{}
+	filter["order_sn"] = orderSN
+	var preOrder models.PreOrder
+	err := collection.FindOne(context.TODO(), filter).Decode(&preOrder)
+	if err != nil {
+		payFailErr := errors.New("没有找到这个订单")
+		return payFailErr
+	}
+
+	_, err = collection.UpdateOne(context.TODO(), bson.D{{"order_sn", orderSN}}, bson.M{"$set": bson.M{
+		"pay_at": time.Now().Unix(), "status": 2, "is_pay": true,
+	}})
+	if err != nil {
+		payFailErr := errors.New("更新订单状态失败")
+		return payFailErr
+	}
+
+	// TODO：通过短信，邮件，或者语音系统提醒用户
+
+	return nil
+}
 
 // 需要一个安全生成订单号的方法
-func GetOrderSN() string {
-	return ""
+func GetOrderSN(com_id, user_id int64) string {
+	return conf.IdWorker.GetOrderSN(com_id, user_id)
 }
 
 // 订单超时, 前台传回来，也可以从redis超时判断
@@ -471,8 +596,16 @@ func FinishOrder(c *gin.Context) {
 // 所有订单
 func AllOrders(c *gin.Context) {
 
-	token := c.GetHeader("Access-Token")
-	claims, _ := auth.ParseToken(token)
+	domain := c.Request.Header.Get("Origin")
+	domain = strings.Split(domain, ":")[1]
+	com, err := models.GetComIDAndModuleByDomain(domain[len("//"):])
+	if err != nil || models.THIS_MODULE != com.ModuleId {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  err.Error(),
+		})
+		return
+	}
 
 	var customerOrderSrv CustomerOrderService
 	if err := c.ShouldBindJSON(&customerOrderSrv); err != nil {
@@ -485,11 +618,17 @@ func AllOrders(c *gin.Context) {
 
 	// TODO: 根据状态来选择订单，加入分页，搜索
 
-	collection := models.Client.Collection("pre_order")
+	collection := models.Client.Collection("customer_order")
+	option := options.Find()
+	option.SetSort(bson.D{{"order_time", -1}})
 	filter := bson.M{}
-	filter["com_id"] = claims.ComId
+	filter["com_id"] = com.ComId
 	filter["customer_id"] = customerOrderSrv.CustomerID
-	cur, err := collection.Find(context.TODO(), filter)
+	filter["order_type"] = 1
+	if customerOrderSrv.Status > 0 {
+		filter["status"] = customerOrderSrv.Status
+	}
+	cur, err := collection.Find(context.TODO(), filter, option)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -498,9 +637,9 @@ func AllOrders(c *gin.Context) {
 		return
 	}
 
-	var preOrders []models.PreOrder
+	var preOrders []models.CustomerOrder
 	for cur.Next(context.TODO()) {
-		var res models.PreOrder
+		var res models.CustomerOrder
 		if err := cur.Decode(&res); err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
 				Code: serializer.CodeError,

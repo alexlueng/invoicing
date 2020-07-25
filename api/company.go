@@ -64,6 +64,7 @@ type ComInfoResponse struct {
 	DefaultProfitMargin float64         `json:"default_profit_margin" form:"default_profit_margin"` //默认利润率
 	Telephone           string          `json:"telephone" form:"telephone"`                         //超级管理员电话
 	QRCodeURL           string          `json:"qrcode_url" form:"qrcode_url"`
+	SupplierPlatformURL string          `json:"supplier_platform_url"` // 供应商平台
 	ComID               int64           `json:"com_id" form:"com_id"`
 	//ExpirationDate      int64           `json:"expiration_date" form:"expiration_date"`             // 到期时间
 }
@@ -127,6 +128,8 @@ func CompanyDetail(c *gin.Context) {
 	for _, domains := range cur.Domain {
 		comInfoResponse.Domains = append(comInfoResponse.Domains, domains)
 	}
+
+	comInfoResponse.SupplierPlatformURL = comInfoResponse.Domains[0].Domain + "/supplier"
 
 	// 返回数据
 	c.JSON(http.StatusOK, serializer.Response{

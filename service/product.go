@@ -36,39 +36,6 @@ type SupplierPrices struct {
 	SupplierPrice float64 `json:"supplier_price"` // 供应商价格
 }
 
-// 查找某商品的采购价格
-func FindOneProductPurchasePrice(product_id, com_id int64) (*ProductPurchasePrice, error) {
-	/*	collection := models.Client.Collection("supplier_product_price")
-		filter := bson.M{}
-		var productPurchasePrice ProductPurchasePrice
-		var supplierProductPriceTMP models.SupplierProductPrice
-		supplierProductPrice := make(map[int64]models.SupplierProductPrice)
-
-		filter["comd_id"] = com_id
-		filter["product_id"] = product_id
-		filter["is_valid"] = true
-		cur, err := collection.Find(context.TODO(), filter)
-		if err != nil {
-			return nil, err
-		}
-		// supplier_id 为0，是这个商品的默认进货价
-		for cur.Next(context.TODO()) {
-			err = cur.Decode(&supplierProductPriceTMP)
-			if err != nil {
-				return nil, err
-			}
-			if supplierProductPriceTMP.SupplierID == 0 {
-				productPurchasePrice.DefaultPrice = supplierProductPriceTMP.Price
-			} else {
-				supplierProductPrice[supplierProductPriceTMP.ProductID] = supplierProductPriceTMP
-			}
-		}
-		productPurchasePrice.ProductId = product_id
-		productPurchasePrice.Prices = supplierProductPrice
-		return &productPurchasePrice, nil*/
-	return nil, nil
-}
-
 // 查找一组商品的采购价
 func FindProductPurchasePrice(product_id []int64, com_id int64) (map[int64]ProductPurchasePrice, error) {
 	collection := models.Client.Collection("supplier_product_price")

@@ -49,7 +49,7 @@ func GetProductStock(c *gin.Context) {
 		return
 	}
 
-	productCount, err := service.GetProductInfoOfWarehouse(req.Product, claims.ComId, 0)
+	productCount, err := service.GetProductInfoOfWarehouse(req.Product, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
@@ -57,6 +57,21 @@ func GetProductStock(c *gin.Context) {
 		})
 		return
 	}
+
+	warehouseProductInfo, err := models.ProductInfoOfWarehouse(req.Product, claims.ComId)
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  err.Error(),
+		})
+		return
+	}
+
+	warehouses, err := service.FindWarehouse(claims.ComId)
+
+	fmt.Println(warehouses)
+
+	fmt.Println(warehouseProductInfo)
 
 	// 拼接返回数据
 	c.JSON(http.StatusOK, serializer.Response{
@@ -169,18 +184,18 @@ type ResponseWarehouseData struct {
 	CurrentPage  int         `json:"current_page"`
 }
 
+type ReqAllWosInstance struct {
+	models.BaseReq
+	WarehouseId int64  `json:"warehouse_id" form:"warehouse_id"` // 仓库id
+	Type        string `json:"type" form:"type"`                 // 搜索类型
+	ProductId   int64  `json:"product_id" form:"product_id"`     // 商品id
+}
+
 // 仓库实例列表
 func AllWosInstance(c *gin.Context) {
 
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-
-	type ReqAllWosInstance struct {
-		models.BaseReq
-		WarehouseId int64  `json:"warehouse_id" form:"warehouse_id"` // 仓库id
-		Type        string `json:"type" form:"type"`                 // 搜索类型
-		ProductId   int64  `json:"product_id" form:"product_id"`     // 商品id
-	}
 
 	var req ReqAllWosInstance
 	var instance models.GoodsInstance

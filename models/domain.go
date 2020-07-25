@@ -2,7 +2,6 @@ package models
 
 import (
 	"context"
-	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"jxc/util"
@@ -63,8 +62,6 @@ func SelectDomainByComID(comID int64) (*DomainResult, error) {
 
 //根据域名查找
 func GetComIDAndModuleByDomain(domain string) (*DomainData, error) {
-
-	fmt.Println("domain string: ", domain)
 
 	var com DomainData
 	filter := bson.D{{"domain", domain}}

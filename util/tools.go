@@ -1,16 +1,23 @@
 package util
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gitee.com/xiaochengtech/wechat/wxpay"
+	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"io/ioutil"
 	"math"
 	"net/http"
 	"net/url"
 	"os"
+	"reflect"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -188,3 +195,115 @@ func GetFileSavePath(comId int64, fileType string) string {
 	path := "/upload/" + comIdStr + "/" + fileType + "/" + currentDate
 	return path
 }
+
+func StructToMap(item interface{}) map[string]interface{} {
+	res := make(map[string]interface{})
+
+	if item == nil {
+		return res
+	}
+
+	v := reflect.TypeOf(item)
+	reflectValue := reflect.ValueOf(item)
+	reflectValue = reflect.Indirect(reflectValue)
+
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	for i := 0; i < v.NumField(); i++ {
+		tag := v.Field(i).Tag.Get("json")
+		field := reflectValue.Field(i).Interface()
+
+		if tag != "" && tag != "-" {
+			if v.Field(i).Type.Kind() == reflect.Struct {
+				res[tag] = StructToMap(field)
+			} else {
+				res[tag] = field
+			}
+		}
+	}
+	return res
+}
+
+// 微信支付计算签名的函数
+func WxpaySign(body wxpay.UnifiedOrderBody, key string) (sign string) {
+
+	data := StructToMap(body)
+	//STEP 1, 对key进行升序排序.
+	sorted_keys := make([]string, 0)
+	for k, _ := range data {
+		sorted_keys = append(sorted_keys, k)
+	}
+
+	sort.Strings(sorted_keys)
+
+	//STEP2, 对key=value的键值对用&连接起来，略过空值
+	var signStrings string
+	for _, k := range sorted_keys {
+		value := fmt.Sprintf("%v", data[k])
+		if value != "" {
+			signStrings = signStrings + k + "=" + value + "&"
+		}
+	}
+
+	//STEP3, 在键值对的最后加上key=API_KEY
+	if key != "" {
+		signStrings = signStrings + "key=" + key
+	}
+	fmt.Println("sign string: ", signStrings)
+	//STEP4, 进行MD5签名并且将所有字符转为大写.
+	md5Ctx := md5.New()
+	md5Ctx.Write([]byte(signStrings))
+	cipherStr := md5Ctx.Sum(nil)
+	upperSign := strings.ToUpper(hex.EncodeToString(cipherStr))
+
+	fmt.Println("Get wxpay sign: ", upperSign)
+
+	return upperSign
+}
+
+func GetIpAddress(c *gin.Context) string {
+	realip := c.GetHeader("X-Real-Ip")
+	if realip != "" {
+		return realip
+	}
+	remoteAddr := c.Request.RemoteAddr
+	if remoteAddr != "" {
+		idx := strings.Index(remoteAddr, ":")
+		return remoteAddr[:idx]
+	}
+	ips := c.GetHeader("X-Forwarded-For")
+	fmt.Println("X-Forwarded-For", ips)
+	if ips != "" {
+		iplist := strings.Split(ips, ",")
+		return strings.TrimSpace(iplist[0])
+	}
+	return ""
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

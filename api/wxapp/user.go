@@ -29,8 +29,8 @@ import (
 
 const (
 	URL       = "https://api.weixin.qq.com/sns/jscode2session?appid=%s&secret=%s&js_code=%s&grant_type=authorization_code"
-	APPID     = "wxf0467c5997b35ffe"
-	APPSECRET = "3a54adbe7988050115ee748d12172bd1"
+	APPID     = "wx25fc69686662e5fb"
+	APPSECRET = "48e02c3cf08e0c9fd3c60e98d0e272e0"
 )
 
 type WechatLogin struct {
@@ -107,6 +107,7 @@ func Login(c *gin.Context) {
 	client := http.Client{}                                              //创建客户端
 	resp, err := client.Do(request.WithContext(context.TODO()))          //发送请求
 	if err != nil {
+		fmt.Println("get open_id error: ", err.Error())
 		c.JSON(http.StatusOK, serializer.Response{
 			Code: serializer.CodeError,
 			Msg:  "http response error",
@@ -283,6 +284,7 @@ func GetUserInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: serializer.CodeSuccess,
 		Msg:  "Update user",
+		Data: user,
 	})
 	//_ = json.Unmarshal(data, &d)
 }

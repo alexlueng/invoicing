@@ -24,11 +24,9 @@ import (
 
 // 销售子订单实例列表
 func AllCustomerSubOrderInstance(c *gin.Context) {
-	// 根据域名获取comid
-	// 根据域名得到com_id
+
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
 
 	type reqData struct {
 		SubOrderSn string `json:"sub_order_sn" form:"sub_order_sn"` // 子订单id
@@ -68,11 +66,6 @@ func CustomerSubOrderInstanceShipped(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	// 接收数据
-	// 子订单号
-	// 实例id
-	// 配送方式
-	// 快递单号
 	type reqData struct {
 		SubOrderSn   string `json:"sub_order_sn" form:"sub_order_sn"`   // 子订单id
 		SubOrderId   int64  `json:"sub_order_id" form:"sub_order_id"`   //子订单号
@@ -81,12 +74,11 @@ func CustomerSubOrderInstanceShipped(c *gin.Context) {
 		DeliveryCode string `json:"delivery_code" form:"delivery_code"` // 快递单号
 	}
 	var req reqData
-	// 接收数据
 	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "参数解释错误",
+			Code: serializer.CodeError,
+			Msg:  "params error",
 		})
 		return
 	}
@@ -94,7 +86,7 @@ func CustomerSubOrderInstanceShipped(c *gin.Context) {
 	instance, err := service.FindOneInstance(req.InstanceId, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
@@ -104,7 +96,7 @@ func CustomerSubOrderInstanceShipped(c *gin.Context) {
 	delivery, err := service.FindOneDelivery(req.DeliveryCom, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
@@ -127,13 +119,28 @@ func CustomerSubOrderInstanceShipped(c *gin.Context) {
 	_, err = collection.UpdateOne(context.TODO(), filter, bson.M{"$set": instance})
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
 	}
+
+	// 修改总订单状态为已发货
+	collection = models.Client.Collection("customer_order")
+	filter = bson.M{}
+	filter["com_id"] = claims.ComId
+	filter["order_sn"] = instance.SrcOrderSn
+	_, err = collection.UpdateOne(context.TODO(),filter, bson.M{"$set" : bson.M{"status" : 2}})
+	if err != nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  err.Error(),
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Data: instance,
 		Msg:  "发货成功！",
 	})
@@ -141,22 +148,19 @@ func CustomerSubOrderInstanceShipped(c *gin.Context) {
 
 // 销售子订单实例确认收货
 func CustomerSubOrderInstanceConfirm(c *gin.Context) {
-	// 根据域名获取comid
-	// 根据域名得到com_id
+
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
 
 	// 提交参数
 	type reqData struct {
 		InstanceId int64 `json:"instance_id" form:"instance_id"` //实例id
 	}
 	var req reqData
-	// 接收数据
 	err := c.ShouldBind(&req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "参数解释错误",
 		})
 		return
@@ -286,8 +290,9 @@ func SupplierSubOrderInstanceConfirm(c *gin.Context) {
 	claims, _ := auth.ParseToken(token)
 
 	type reqData struct {
-		SubOrderSn string `json:"order_sub_sn" form:"order_sub_sn"` //子订单号
-		SubOrderId int64  `json:"order_sub_id" form:"order_sub_id"` // 子订单id
+		SubOrderSn string `json:"order_sub_sn"` //子订单号
+		SubOrderId int64  `json:"order_sub_id"` // 子订单id
+		WarehouseID int64 `json:"warehouse_id"`
 	}
 	var req reqData
 	// 接收数据
@@ -366,20 +371,21 @@ func SupplierSubOrderInstanceConfirm(c *gin.Context) {
 		return
 	}
 
-/*  更新商品库存
-	var product models.Product
-	collection = models.Client.Collection("product")
-	filter = bson.M{}
-	filter["com_id"] = claims.ComId
-	filter["product_id"] = instance.ProductID
-	updateResult, err := collection.UpdateOne(context.TODO(), filter, bson.M{"$inc": bson.M{
-		"stock": instance.Amount}})
+	// 修改仓库库存情况
+	collection = models.Client.Collection("warehouse_product")
+	wFilter := bson.M{}
+	wFilter["com_id"] = claims.ComId
+	wFilter["product_id"] = instance.ProductID
+	wFilter["warehouse_id"] = req.WarehouseID
+	_, err = collection.UpdateOne(context.TODO(), wFilter, bson.M{
+		"$inc" : bson.M{"un_stock" : -instance.Amount, "current_stock" : instance.Amount}})
 	if err != nil {
-		fmt.Println("Can't update product stock: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  err.Error(),
+		})
 		return
 	}
-	fmt.Println("Update result: ", updateResult.UpsertedID)
-*/
 	c.JSON(http.StatusOK, serializer.Response{
 		Code: 200,
 		Data: subOrder,

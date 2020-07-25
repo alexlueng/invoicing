@@ -160,15 +160,16 @@ type ResponseCustomerData struct {
 type MiniAppUser struct {
 	ComID          int64   `json:"com_id" bson:"com_id"`
 	UserID         int64   `json:"user_id" bson:"user_id"`
-	OpenID         string  `json:"open_id" bson:"open_id"`     // 小程序用户唯一标识
-	AvatarURL      string  `json:"avatarurl" bson:"avatarurl"` // 头像地址
-	City           string  `json:"city" bson:"city"`
-	Gender         int64   `json:"gender" bson:"gender"`       // 性别 1 男 2 女
-	Language       string  `json:"language" bson:"language"`   // 语言
-	NickName       string  `json:"nickname" bson:"nickname"`   // 昵称
-	Province       string  `json:"province" bson:"province"`   // 省份
-	Telephone      string  `json:"telephone" bson:"telephone"` // 手机号
-	CreateAt       int64   `json:"create_at" bson:"create_at"`
+	LevelID        int64   `json:"level_id" bson:"level_id"`
+	OpenID         string  `json:"open_id" bson:"open_id"`                 // 小程序用户唯一标识
+	AvatarURL      string  `json:"avatarurl" bson:"avatarurl"`             // 头像地址
+	City           string  `json:"city" bson:"city"`                       // 城市
+	Gender         int64   `json:"gender" bson:"gender"`                   // 性别 1 男 2 女
+	Language       string  `json:"language" bson:"language"`               // 语言
+	NickName       string  `json:"nickname" bson:"nickname"`               // 昵称
+	Province       string  `json:"province" bson:"province"`               // 省份
+	Telephone      string  `json:"telephone" bson:"telephone"`             // 手机号
+	CreateAt       int64   `json:"create_at" bson:"create_at"`             // 注册时间
 	Verify         int64   `json:"verify" bson:"verify"`                   // 是否通过验证 0 待验证 1 已经验证 2 验证不通过
 	SessionKey     string  `json:"session_key" bson:"session_key"`         // 微信服务器传回来的key
 	Salt           string  `json:"salt" bson:"salt"`                       // 用于加密的随机字符串

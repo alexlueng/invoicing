@@ -7,6 +7,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"io/ioutil"
 	"jxc/auth"
+	"jxc/conf"
 	"jxc/models"
 	"jxc/serializer"
 	"jxc/util"
@@ -112,7 +113,7 @@ func AddCustomerOrder(c *gin.Context) {
 	err := json.Unmarshal(data, &order)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "创建订单失败",
 		})
 		return
@@ -127,8 +128,9 @@ func AddCustomerOrder(c *gin.Context) {
 
 	order.Amount = totalAmount
 
-	//这里需要一个订单号生成方法，日期加上6位数的编号,这个订单编号应该是全局唯一的
-	order.OrderSN = GetTempOrderSN()
+	//这里需要一个订单号生成方法，snowflake + com_id + user_id
+	//order.OrderSN = GetTempOrderSN()
+	order.OrderSN = conf.IdWorker.GetOrderSN(claims.ComId, order.CustomerID)
 	order.OrderId = GetLastID("customer_order")
 	order.ComID = claims.ComId
 
@@ -139,12 +141,13 @@ func AddCustomerOrder(c *gin.Context) {
 	//设置订单状态
 	order.Status = models.TOBECONFIRMED
 	order.IsPrepare = false // 备货状态
+	order.OrderType = 2
 
 	err = order.Insert()
 
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "创建订单失败",
 		})
 		return
@@ -157,7 +160,7 @@ func AddCustomerOrder(c *gin.Context) {
 		result.ComID = claims.ComId
 
 		subSn_str, _ := util.GetOrderSN(result.ComID)
-		result.SubOrderId =GetLastID("sub_order")
+		result.SubOrderId = GetLastID("sub_order")
 		result.SubOrderSn = subSn_str
 		result.OrderId = order.OrderId
 
@@ -180,8 +183,8 @@ func AddCustomerOrder(c *gin.Context) {
 	err = models.MultiplyInsertCustomerSubOrder(subOrders)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
-			Msg:  "创建订单失败",
+			Code: serializer.CodeError,
+			Msg:  err.Error(),
 		})
 		return
 	}
@@ -191,7 +194,7 @@ func AddCustomerOrder(c *gin.Context) {
 		err := models.UpdateQuantityByComIDAndProductID(claims.ComId, item.ProductID, item.Quantity)
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  "创建订单失败",
 			})
 			return
@@ -203,7 +206,7 @@ func AddCustomerOrder(c *gin.Context) {
 	responseData["sub_orders"] = subOrders
 
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Customer order create succeeded",
 		Data: responseData,
 	})
@@ -215,12 +218,12 @@ func CheckCustomerPrice(c *gin.Context) {
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
 
-	data, _ :=ioutil.ReadAll(c.Request.Body)
+	data, _ := ioutil.ReadAll(c.Request.Body)
 	var orderProducts models.OrderProducts
 	err := json.Unmarshal(data, &orderProducts)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "创建订单失败",
 		})
 		return
@@ -230,7 +233,7 @@ func CheckCustomerPrice(c *gin.Context) {
 
 	var price []float64 // 需要返回给前端的价格数组
 	filter := bson.M{}
-	filter["com_id"] = claims.ComId // need to get com id from middleware
+	filter["com_id"] = claims.ComId
 	filter["customer_id"] = orderProducts.CustomerID
 
 	for _, product_id := range orderProducts.ProductsID {
@@ -257,14 +260,20 @@ func CheckCustomerPrice(c *gin.Context) {
 
 			err = cpp.Add()
 			if err != nil {
-				fmt.Println("err while insert result: ", err)
+				c.JSON(http.StatusOK, serializer.Response{
+					Code: serializer.CodeError,
+					Msg:  err.Error(),
+				})
 				return
 			}
 
 			// 更新商品客户列表，把客户id追加到cus_price数组中
 			err = models.UpdateCusPriceByProductID(cpp.ProductID, cpp.CustomerID)
 			if err != nil {
-				fmt.Println("err while insert result: ", err)
+				c.JSON(http.StatusOK, serializer.Response{
+					Code: serializer.CodeError,
+					Msg:  err.Error(),
+				})
 				return
 			}
 
@@ -274,7 +283,7 @@ func CheckCustomerPrice(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Get customer price succeeded",
 		Data: price,
 	})
@@ -291,7 +300,10 @@ func CustomerPrice(c *gin.Context) {
 	var orderProducts models.OrderProducts
 	err := json.Unmarshal(data, &orderProducts)
 	if err != nil {
-		fmt.Println("CustomerPrice error while unmarshaling: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  "params",
+		})
 		return
 	}
 
@@ -299,12 +311,17 @@ func CustomerPrice(c *gin.Context) {
 	// 从客户商品价格表中找到对应商品的客户价格
 	// 如果没有找到，则将价格设置为商品的默认价格
 	filter["com_id"] = claims.ComId
-	filter["product_id"] = bson.M{"$in": orderProducts.ProductsID}
+	if len(orderProducts.ProductsID) > 0 {
+		filter["product_id"] = bson.M{"$in": orderProducts.ProductsID}
+	}
+
 	filter["customer_id"] = bson.M{"$eq": orderProducts.CustomerID}
-	//fmt.Println("filter: ", filter)
 	curtomerPriceData, err := models.SelectMultiplyCustomerOrderProductPriceByConditoin(filter)
 	if err != nil {
-		fmt.Println("err while finding record: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  err.Error(),
+		})
 		return
 	}
 
@@ -314,7 +331,7 @@ func CustomerPrice(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "Get customer price succeeded",
 		Data: prices,
 	})
@@ -396,22 +413,21 @@ func DeleteCustomerOrder(c *gin.Context) {
 }
 
 type OrderDetail struct {
-	Order models.CustomerOrder `json:"order"`
+	Order     models.CustomerOrder      `json:"order"`
 	SubOrders []models.CustomerSubOrder `json:"sub_orders"`
 }
 
 func CustomerOrderDetail(c *gin.Context) {
 
-	// 根据域名得到com_id
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
 
 	order_sn := GetCustomerOrderSNService{}
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	err := json.Unmarshal(data, &order_sn)
 	if err != nil {
 		fmt.Println("error found: ", err)
+		return
 	}
 
 	filter := bson.M{}
@@ -435,7 +451,7 @@ func CustomerOrderDetail(c *gin.Context) {
 	}
 
 	var suborders []models.CustomerSubOrder
-	for _, res :=range suborderList.CustomerSubOrder {
+	for _, res := range suborderList.CustomerSubOrder {
 		suborders = append(suborders, res)
 	}
 
@@ -499,30 +515,32 @@ type PrepareStockService struct {
 func PrepareStock(c *gin.Context) {
 	claims, ok := c.Get("claims")
 	if !ok {
-		fmt.Println("Can't get com_id")
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeTokenErr,
+			Msg:  "token error",
+		})
 		return
 	}
 
 	var ps PrepareStockService
 	if err := c.ShouldBindJSON(&ps); err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "params error",
 		})
 		return
 	}
 
-	updateResult, err := models.UpdateCustomerSubOrderPrepared(claims.(*auth.Claims).ComId, ps.SubOrderID)
+	_, err := models.UpdateCustomerSubOrderPrepared(claims.(*auth.Claims).ComId, ps.SubOrderID)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: 200,
-			Msg:  "备货完成失败",
+			Code: serializer.CodeError,
+			Msg:  "备货失败",
 		})
 		return
 	}
-	fmt.Println("Prepare stock update result: ", updateResult.UpsertedID)
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeError,
 		Msg:  "备货完成",
 	})
 }

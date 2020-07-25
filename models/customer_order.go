@@ -5,6 +5,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	//"jxc/util"
 	"strconv"
 	"time"
 )
@@ -54,6 +55,7 @@ type CustomerOrder struct {
 	CustomerName          string                      `json:"customer_name" bson:"customer_name"`
 	Contacts              string                      `json:"contacts" bson:"contacts"`
 	Receiver              string                      `json:"receiver" bson:"receiver"`
+	ReceiverAddress       string                      `json:"receiver_address" bson:"receiver_address"` // 收货地址
 	Phone                 string                      `json:"receiver_phone" bson:"receiver_phone"`
 	TotalPrice            float64                     `json:"total_price" bson:"price"` // 订单总价
 	Amount                int64                       `json:"amount" bson:"amount"`     // 订单总数量
@@ -65,12 +67,91 @@ type CustomerOrder struct {
 	ConfirmTime           int64                       `json:"confirm_time" bson:"confirm_time"`
 	PayTime               int64                       `json:"pay_time" bson:"pay_time"`
 	FinishTime            int64                       `json:"finish_time" bson:"finish_time"`
-	Status                int64                       `json:"status" bson:"status"`         // 订单状态，1：待发货 2：配货中 3：配货完成 4：审核通过（已打款） 5：审核不通过 6: 失效
+	Status                int64                       `json:"status" bson:"status"`         // 订单状态，1：待发货 2:已发货 (2：配货中 3：配货完成) 4：审核通过（已打款） 5：审核不通过 6: 失效
 	Products              []CustomerOrderProductsInfo `json:"products"`                     // 订单中的商品列表
 	SubOrders             []CustomerSubOrder          `json:"sub_orders"`                   // 子订单
 	OperatorID            int64                       `json:"operator_id"`                  // 本次订单的操作人，对应user_id
 	TransportationExpense float64                     `json:"transportation_expense"`       // 邮费 此项如果为0，则为包邮，此字段不能为负数，应该对它进行检查，或者设为无符号数
 	IsPrepare             bool                        `json:"is_prepare" bson:"is_prepare"` // 备货完成
+	IsPay                 bool                        `json:"is_pay" bson:"is_pay"`         // 是否支付
+	OrderType             int64                       `json:"order_type" bson:"order_type"` // 订单类型 1 微信小程序订单 2 平台下单
+}
+
+// 订单中包含的商品信息
+type CustomerOrderProductsInfo struct {
+	SubOrderSN string  `json:"sub_order_sn" bson:"sub_order_sn"`
+	SubOrderId int64   `json:"sub_order_id" bson:"sub_order_id"`
+	ProductID  int64   `json:"product_id" bson:"product_id"`
+	Product    string  `json:"product" bson:"product"`
+	Quantity   int64   `json:"quantity" bson:"amount"` //数量
+	Price      float64 `json:"price" bson:"price"`
+	Thumbnail  string  `json:"thumbnail" bson:"thumbnail"`
+}
+
+func PreOrderToCustomerOrderAndSubOrder(pre PreOrder) (*CustomerOrder, []interface{}, error) {
+	order := CustomerOrder{
+		ComID:                 pre.ComID,
+		OrderId:               pre.OrderID,
+		OrderSN:               pre.OrderSN,
+		CustomerID:            pre.CustomerID,
+		CustomerName:          pre.CustomerName,
+		Contacts:              pre.CustomerName,
+		Receiver:              pre.CustomerName,
+		Phone:                 "",
+		TotalPrice:            pre.TotalPrice,
+		Amount:                0,
+		OrderTime:             pre.CreateAt,
+		Status:                pre.Status,
+		TransportationExpense: pre.DeliveryFee,
+		IsPay:                 pre.IsPay,
+		Products:              pre.Items,
+		OrderType:             1,
+	}
+
+	// 用户收货地址
+	var address Address
+	collection := Client.Collection("address")
+	filter := bson.M{}
+	filter["com_id"] = pre.ComID
+	filter["address_id"] = pre.AddressID
+	err := collection.FindOne(context.TODO(), filter).Decode(&address)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	order.ReceiverAddress = address.Location
+	order.Phone = address.Telephone
+
+	var subOrders []interface{}
+	var amount int64
+	// 把订单中的每个子项插入到客户订单实例表中
+	for _, item := range order.Products {
+		var result CustomerSubOrder
+		result.ComID = order.ComID
+
+		//result.SubOrderId = util.GetLastID("sub_order")
+		//result.SubOrderSn = conf.IdWorker.GetOrderSN(order.ComID, order.CustomerID)
+		result.OrderId = order.OrderId
+		result.CustomerID = order.CustomerID
+		result.CustomerName = order.CustomerName
+		result.OrderSN = order.OrderSN
+		result.Product = item.Product
+		result.Amount = item.Quantity
+		result.Price = item.Price
+		result.ProductID = item.ProductID
+		result.Receiver = order.Receiver
+		result.ReceiverPhone = order.Phone
+		result.OrderTime = order.OrderTime
+		result.Status = order.Status
+		result.IsPrepare = false // 备货未完成
+
+		subOrders = append(subOrders, result)
+		// 订单总数量
+		amount += item.Quantity
+	}
+	order.Amount = amount
+
+	return &order, subOrders, nil
 }
 
 // 获取最新的主键ID
@@ -122,16 +203,6 @@ type CustomerOrderReq struct {
 	EndPayTime     string  `json:"end_pay_time" form:"end_pay_time"`
 	StartShipTime  string  `json:"start_ship_time" form:"start_ship_time"`
 	EndShipTime    string  `json:"end_ship_time" form:"end_ship_time"`
-}
-
-// 订单中包含的商品信息
-type CustomerOrderProductsInfo struct {
-	SubOrderSN string  `json:"sub_order_sn" bson:"sub_order_sn"`
-	SubOrderId int64   `json:"sub_order_id" bson:"sub_order_id"`
-	ProductID  int64   `json:"product_id" bson:"product_id"`
-	Product    string  `json:"product"`
-	Quantity   int64   `json:"quantity" bson:"amount"` //数量
-	Price      float64 `json:"price"`
 }
 
 // 用来查找选中商品后对应客户的价格
@@ -248,7 +319,3 @@ func SelectCustomerOrderByComIDAndOrderSN(comID int64, orderSN string) (Customer
 	err := getCustomerOrderCollection().FindOne(context.TODO(), filter).Decode(&order)
 	return order, err
 }
-
-
-
-

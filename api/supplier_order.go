@@ -224,11 +224,9 @@ func DeleteSupplierOrder(c *gin.Context) {
 	})
 }
 func SupplierOrderDetail(c *gin.Context) {
-	// 根据域名得到com_id
-	// 根据域名得到com_id
+
 	token := c.GetHeader("Access-Token")
 	claims, _ := auth.ParseToken(token)
-	fmt.Println("ComID: ", claims.ComId)
 
 	order := models.SupplierOrder{}
 	order_sn := GetSupplierOrderSNService{}
@@ -332,12 +330,11 @@ func AddCustomerPurchaseOrder(c *gin.Context) {
 		orderSn          string
 		stockNum, amount int64
 	)
-	//user_id := int64(1) // TODO
 	data, _ := ioutil.ReadAll(c.Request.Body)
 	err := json.Unmarshal(data, &req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
@@ -348,7 +345,7 @@ func AddCustomerPurchaseOrder(c *gin.Context) {
 	order, err := service.FindOneCustomerSubOrder(req.SubOrderSn, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
@@ -357,63 +354,53 @@ func AddCustomerPurchaseOrder(c *gin.Context) {
 	product, err := service.FindOneProduct(order.ProductID, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "未能找到这个商品的信息！",
 		})
 		return
 	}
 
-	// 该商品的库存
-	stockNum = product.Stock
-
 	// 判断是供应商发货还是仓库发货，针对创建实例和订单
 	switch req.Type {
-	case 1:
-		// 仓库发 库存实例
+	case 1: // 仓库发 库存实例
+
 		var instance models.GoodsInstance
 		var instanceArr []interface{}
 
-		// 获取仓库id
-		var warehouses_id = req.Warehouses[0].WarehousesId
-		// 获取商品的库存
-		productStock, err := service.GetProductInfoOfWarehouse(order.ProductID, claims.ComId, warehouses_id)
+		productStock, err := service.GetProductInfoOfWarehouse(order.ProductID, claims.ComId) // 获取商品的库存
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  err.Error(),
 			})
 			return
 		}
 
-		warehousesInfo, _ := service.FindWarehouse(warehouses_id, claims.ComId)
+		warehousesInfo, _ := service.FindWarehouse(claims.ComId)
 		var instanceId int64
-		for _, val := range req.Warehouses {
-			//仓库中是否有足够的库存
+		for _, val := range req.Warehouses { //仓库中是否有足够的库存
 			data, ok := productStock[order.ProductID]
-			if !ok {
-				//仓库中没有这个商品的库存
+			if !ok { //仓库中没有这个商品的库存
 				c.JSON(http.StatusOK, serializer.Response{
-					Code: -1,
+					Code: serializer.CodeError,
 					Data: map[string]int64{"product": order.ProductID},
 					Msg:  "仓库中没有这个商品的库存!",
 				})
 				return
 			}
-			wos, ok := data.Stock[val.WarehousesId]
-			if !ok {
-				// 这个仓库中没有这个商品的库存
+			warehouseProductInfo, ok := data.Stock[val.WarehousesId]
+			if !ok { // 这个仓库中没有这个商品的库存
 				c.JSON(http.StatusOK, serializer.Response{
-					Code: -1,
+					Code: serializer.CodeError,
 					Data: map[string]int64{"warehouses": val.WarehousesId, "product": val.ProductId},
 					Msg:  "这个仓库中没有这个商品的库存!",
 				})
 				return
 			}
-			if wos.Num < val.Num {
-				// 这个仓库中的数量不足
+			if warehouseProductInfo.Num < val.Num { // 这个仓库中的数量不足
 				c.JSON(http.StatusOK, serializer.Response{
-					Code: -1,
-					Data: map[string]int64{"warehouses": val.WarehousesId, "product": val.ProductId, "wos_num": wos.Num, "num": val.Num},
+					Code: serializer.CodeError,
+					Data: map[string]int64{"warehouses": val.WarehousesId, "product": val.ProductId, "wos_num": warehouseProductInfo.Num, "num": val.Num},
 					Msg:  "这个仓库中的库存数量不足!",
 				})
 				return
@@ -437,131 +424,136 @@ func AddCustomerPurchaseOrder(c *gin.Context) {
 				DestSubOrderSn: order.SubOrderSn,
 				PlaceType:      1, //1 销售-待发货
 				PlaceId:        val.WarehousesId,
-				SubPlaceId:     0,
 				ProductID:      order.ProductID,
 				Product:        order.Product,
 				Contacts:       warehousesInfo[val.WarehousesId].WarehouseAdminName,
 				Receiver:       order.Receiver,
 				ReceiverPhone:  order.ReceiverPhone,
 				CustomerPrice:  order.Price,
-				SupplierPrice:  0,
 				Amount:         val.Num,
-				ExtraAmount:    0,
-				DeliveryCom:    0,
-				Delivery:       "",
-				DeliveryCode:   "",
 				OrderTime:      time.Now().Unix(),
 				CreateBy:       claims.UserId,
-				ShipTime:       0,
-				ConfirmTime:    0,
-				CheckTime:      0,
-				PayTime:        0,
-				FinishTime:     0,
 				Status:         1,
-				Units:          "",
-				//SettlementOrderSN: "",
-				//Settlement:        0,
 			}
 			instanceArr = append(instanceArr, instance)
 			stockNum = stockNum - val.Num
 			amount += val.Num
 		}
 
-		if (order.Amount - order.WarehouseAmount - order.SupplierAmount) < amount {
+		if (order.Amount - order.WarehouseAmount - order.SupplierAmount) < 0 {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  "购买总数不可大于需求量",
 			})
 			return
 		}
 
-		// 将这个订单实例插入订单实例表
-		err = service.AddGoodsInstance(instanceArr)
+
+		err = service.AddGoodsInstance(instanceArr) // 将这个订单实例插入订单实例表
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeSuccess,
 				Msg:  err.Error(),
 			})
 			return
 		}
 
-		// 修改子订单已发货数量
-		err = service.UpdateSupplierAndWarehouseAmount(order.SubOrderSn, 1, amount, claims.ComId)
+		err = service.UpdateSupplierAndWarehouseAmount(order.SubOrderSn, 1, amount, claims.ComId) // 修改子订单已发货数量
 		if err != nil {
-			fmt.Println("Can't update sub order: ", err)
-			return
-		}
-		// 修改商品表中的库存
-		err = service.UpdateProductStock(order.ProductID, stockNum, claims.ComId)
-		if err != nil {
-			fmt.Println("Can't update product stock: ", err)
-			return
-		}
-
-		// 检测库存数量，如果低于库存的最低预警值，则向消息表中写入一条message，message中的User字段为仓库管理员
-		var product models.Product
-		collection := models.Client.Collection("product")
-		err = collection.FindOne(context.TODO(), bson.D{{"product_id", order.ProductID}}).Decode(&product)
-		if err != nil {
-			fmt.Println("Can't find product")
-			return
-		}
-
-		if product.Stock < 0 {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
-				Msg:  "商品库存小于0，请查看原因！",
+				Code: serializer.CodeError,
+				Msg:  err.Error(),
 			})
 			return
 		}
 
-		// 检查系统是否开启了库存提醒 getSystemConfig()
-		if product.Stock < product.MinAlert { // 生成n条提醒消息,消息的接收者是仓库管理员
-			service.StockMessage(product, claims.ComId)
-		}
-
-		break
-	case 2:
-		// 供应商发
-
-		// 获取供应商信息
-		supplier, err := service.FindOneSupplier(req.Supplier.SupplierId, claims.ComId)
+		err = service.UpdateProductStock(order.ProductID, stockNum, claims.ComId) // 修改商品表中的库存
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
+				Msg:  err.Error(),
+			})
+			return
+		}
+
+		// 修改warehouse_product表中的数据
+		// 修改仓库库存情况
+		collection := models.Client.Collection("warehouse_product")
+		wFilter := bson.M{}
+		wFilter["com_id"] = claims.ComId
+		wFilter["product_id"] = instance.ProductID
+		wFilter["warehouse_id"] = instance.SrcId
+		_, err = collection.UpdateOne(context.TODO(), wFilter, bson.M{
+			"$inc" : bson.M{"current_stock" : -instance.Amount, "to_be_sent" : instance.Amount}})
+		if err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  err.Error(),
+			})
+			return
+		}
+
+
+		// 检测库存数量，如果低于库存的最低预警值，则向消息表中写入一条message，message中的User字段为仓库管理员
+		//var product models.Product
+		//collection = models.Client.Collection("product")
+		//err = collection.FindOne(context.TODO(), bson.D{{"product_id", order.ProductID}}).Decode(&product)
+		//if err != nil {
+		//	c.JSON(http.StatusOK, serializer.Response{
+		//		Code: serializer.CodeError,
+		//		Msg:  err.Error(),
+		//	})
+		//	return
+		//}
+		//
+		//if product.Stock < 0 {
+		//	c.JSON(http.StatusOK, serializer.Response{
+		//		Code: serializer.CodeError,
+		//		Msg:  "商品库存小于0，请查看原因！",
+		//	})
+		//	return
+		//}
+
+		// 检查系统是否开启了库存提醒 getSystemConfig()
+		//if product.Stock < product.MinAlert { // 生成n条提醒消息,消息的接收者是仓库管理员
+		//	service.StockMessage(product, claims.ComId)
+		//}
+
+		break
+	case 2: // 供应商发
+
+		supplier, err := service.FindOneSupplier(req.Supplier.SupplierId, claims.ComId) // 获取供应商信息
+		if err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
 				Msg:  "未能找到该供应商！",
 			})
 			return
 		}
 		product_ids = append(product_ids, order.ProductID)
-		// 获取提交的商品进货价
-		purchasePrice, err := service.FindProductPurchasePrice(product_ids, claims.ComId)
+		purchasePrice, err := service.FindProductPurchasePrice(product_ids, claims.ComId)  // 获取提交的商品进货价
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  err.Error(),
 			})
 			return
 		}
 
-		// 对采购价map进行验证，如有提交的供应商没有供货该商品的记录，则提示
-		supplierPrice, ok := purchasePrice[order.ProductID].SupplierPrices[order.ProductID]
-		if !ok {
-			// 没有找到这个商品的价格
+		supplierPrice, ok := purchasePrice[order.ProductID].SupplierPrices[order.ProductID] // 对采购价map进行验证，如有提交的供应商没有供货该商品的记录，则提示
+		if !ok { // 没有找到这个商品的价格
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Data: map[string]int64{"product_id": order.ProductID},
 				Msg:  "没有找到这个商品的价格",
 			})
 			return
 		}
 
-		// 获取供应商商品价格
-		unit_price = purchasePrice[order.ProductID].SupplierPrices[req.Supplier.SupplierId].SupplierPrice
-		if unit_price < 0 {
-			// 这个供应商没有提供这个商品
+		unit_price = purchasePrice[order.ProductID].SupplierPrices[req.Supplier.SupplierId].SupplierPrice // 获取供应商商品价格
+		if unit_price < 0 { // 这个供应商没有提供这个商品
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Data: map[string]int64{"supplier_id": req.Supplier.SupplierId, "product_id": order.ProductID},
 				Msg:  "这个供应商没有提供这个商品",
 			})
@@ -569,22 +561,17 @@ func AddCustomerPurchaseOrder(c *gin.Context) {
 		}
 
 		// 组装供应商订单数据，组装子订单数据，组装实例数据
-
 		var supplierOrder models.SupplierOrder
 		var supplierSubOrder models.SupplierSubOrder
 
-		// 获取订单号
-		orderSn, _ = util.GetOrderSN(claims.ComId)
+		orderSn, _ = util.GetOrderSN(claims.ComId) // 获取订单号
 		orderId, _ := util.GetTableId("supplier_order")
 
-		// 组装采购订单
-		supplierOrder = models.SupplierOrder{
+		supplierOrder = models.SupplierOrder{ 		// 组装采购订单
 			ComID:         claims.ComId,
 			OrderId:       orderId,
 			OrderSN:       orderSn,
 			SalesOrderSn:  order.OrderSN,
-			WarehouseID:   0,
-			WarehouseName: "",
 			SupplierID:    req.Supplier.SupplierId,
 			Supplier:      supplier.SupplierName,
 			Contacts:      order.Contacts,
@@ -592,18 +579,8 @@ func AddCustomerPurchaseOrder(c *gin.Context) {
 			ReceiverPhone: order.ReceiverPhone,
 			Price:         supplierPrice.SupplierPrice * util.Unwrap(req.Supplier.Num, 0),
 			Amount:        req.Supplier.Num,
-			ExtraAmount:   0,
-			Delivery:      "",
-			DeliveryCode:  "",
 			OrderTime:     time.Now().Unix(),
 			CreateBy:      claims.UserId,
-			ShipTime:      0,
-			Shipper:       0,
-			ConfirmTime:   0,
-			ConfirmBy:     0,
-			PayTime:       0,
-			PayBy:         0,
-			FinishTime:    0,
 			Status:        1,
 		}
 		subOrderId, _ := util.GetTableId("sub_order")
@@ -622,12 +599,6 @@ func AddCustomerPurchaseOrder(c *gin.Context) {
 			ProductUnitPrice: supplierPrice.SupplierPrice,
 			CreateAt:         time.Now().Unix(),
 			CreateBy:         claims.UserId,
-			ShipTime:         0,
-			Shipper:          0,
-			ConfirmAt:        0,
-			ConfirmBy:        0,
-			CheckAt:          0,
-			CheckBy:          0,
 			State:            1,
 		}
 		var insertArr []interface{}
@@ -653,9 +624,6 @@ func AddCustomerPurchaseOrder(c *gin.Context) {
 			DestOrderSn:    order.OrderSN,
 			DestSubOrderId: order.SubOrderId,
 			DestSubOrderSn: order.SubOrderSn,
-			PlaceType:      0,
-			PlaceId:        0,
-			SubPlaceId:     0,
 			ProductID:      order.ProductID,
 			Product:        order.Product,
 			Contacts:       supplier.Phone,
@@ -664,59 +632,42 @@ func AddCustomerPurchaseOrder(c *gin.Context) {
 			CustomerPrice:  order.Price,
 			SupplierPrice:  supplierPrice.SupplierPrice,
 			Amount:         req.Supplier.Num,
-			ExtraAmount:    0,
-			DeliveryCom:    0,
-			Delivery:       "",
-			DeliveryCode:   "",
 			OrderTime:      time.Now().Unix(),
 			CreateBy:       claims.UserId,
-			ShipTime:       0,
-			ConfirmTime:    0,
-			CheckTime:      0,
-			PayTime:        0,
-			FinishTime:     0,
 			Status:         1,
-			Units:          "",
-			//SettlementOrderSN: "",
-			//Settlement:        0,
 		}
 		if (order.Amount - order.WarehouseAmount - order.SupplierAmount) < req.Supplier.Num {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  "购买总数不可大于需求量",
 			})
 			return
 		}
 
-		// 创建采购订单
-		err = service.CreateSupplierOrder(supplierOrder, insertArr)
+		err = service.CreateSupplierOrder(supplierOrder, insertArr) // 创建采购订单
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  err.Error(),
 			})
 			return
 		}
 
-		// 创建商品实例
-		var instanceArr []interface{}
+		var instanceArr []interface{} // 创建商品实例
 		instanceArr = append(instanceArr, instance)
 
 		err = service.AddGoodsInstance(instanceArr)
 		if err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  err.Error(),
 			})
 			return
 		}
-
-		//stockNum = stockNum - req.Supplier.Num
-
 		// 修改子订单已发货数量
 		if err = service.UpdateSupplierAndWarehouseAmount(order.SubOrderSn, 2, req.Supplier.Num+order.SupplierAmount, claims.ComId); err != nil {
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Msg:  err.Error(),
 			})
 			return
@@ -724,7 +675,7 @@ func AddCustomerPurchaseOrder(c *gin.Context) {
 		break
 	default:
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  "未定义的类型",
 		})
 		return
@@ -734,7 +685,7 @@ func AddCustomerPurchaseOrder(c *gin.Context) {
 	// 如果已配货数量等于总数，则将状态改为配货完成
 
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Msg:  "添加供应商订单成功！",
 	})
 	return
@@ -766,31 +717,29 @@ func AddPurchaseOrder(c *gin.Context) {
 	err := json.Unmarshal(data, &req)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
 	}
 
-	// 获取提交的商品进货价
+	// 1 获取提交的商品进货价
 	for _, val := range req.Product {
 		product_ids = append(product_ids, val.ProductId)
 	}
-	// 1
 	purchasePrice, err := service.FindProductPurchasePrice(product_ids, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
 	}
-	// 获取仓库信息
-	//2
+	// 2 获取仓库信息
 	warehouses, err := service.FindOneWarehouse(req.WarehousesId, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
@@ -801,7 +750,7 @@ func AddPurchaseOrder(c *gin.Context) {
 		if !ok {
 			// 没有找到这个商品的价格
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Data: map[string]int64{"product_id": val.ProductId},
 				Msg:  "没有找到这个商品的价格",
 			})
@@ -811,7 +760,7 @@ func AddPurchaseOrder(c *gin.Context) {
 		if !ok {
 			// 这个供应商没有提供这个商品
 			c.JSON(http.StatusOK, serializer.Response{
-				Code: -1,
+				Code: serializer.CodeError,
 				Data: map[string]int64{"supplier_id": val.SupplierID, "product_id": val.ProductId},
 				Msg:  "这个供应商没有提供这个商品",
 			})
@@ -822,25 +771,26 @@ func AddPurchaseOrder(c *gin.Context) {
 	// 去重
 	warehouses.Product = util.RemoveRepeatedElementInt64(warehouses.Product)
 
-	// 获取商品信息
-	//3
+	// 3 获取商品信息
 	product, err := service.FindProduct(product_ids, claims.ComId)
 
-	// 获取供应商信息
-	//4
+	// 4 获取供应商信息
 	Supplier, err := service.FindOneSupplier(req.SupplierID, claims.ComId)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
 	}
-	// 添加一条供应商订单，N条订单实例
-	// 添加N条库存实例
+
+	// 添加一条供应商订单，N条订单实例 添加N条库存实例
 	orderSn, err = util.GetOrderSN(claims.ComId)
 	if err != nil {
-		fmt.Println("err:", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  err.Error(),
+		})
 		return
 	}
 	orderId, _ := util.GetTableId("supplier_sub_order")
@@ -869,15 +819,8 @@ func AddPurchaseOrder(c *gin.Context) {
 			ProductUnitPrice: unit_price,
 			CreateAt:         time.Now().Unix(),
 			CreateBy:         claims.UserId,
-			ShipTime:         0,
-			Shipper:          0,
-			ConfirmAt:        0,
-			ConfirmBy:        0,
-			CheckAt:          0,
-			CheckBy:          0,
 			State:            1,
 		}
-
 		supplierSubOrderArr = append(supplierSubOrderArr, supplierSubOrder)
 	}
 	// 组装供应商订单
@@ -895,18 +838,8 @@ func AddPurchaseOrder(c *gin.Context) {
 		ReceiverPhone: warehouses.Phone,
 		Price:         price,
 		Amount:        amount,
-		ExtraAmount:   0,
-		Delivery:      "",
-		DeliveryCode:  "",
 		OrderTime:     time.Now().Unix(),
 		CreateBy:      claims.UserId,
-		ShipTime:      0,
-		Shipper:       0,
-		ConfirmTime:   0,
-		ConfirmBy:     0,
-		PayTime:       0,
-		PayBy:         0,
-		FinishTime:    0,
 		Status:        1, // 未发货
 	}
 	// 组装实例
@@ -916,124 +849,118 @@ func AddPurchaseOrder(c *gin.Context) {
 
 		// 从供应商发到仓库 src_type = 2 ,dest_type = 3
 		data := val.(models.SupplierSubOrder)
-		fmt.Print("data:", data)
 		instance = models.GoodsInstance{
-			InstanceId:     instanceId,
-			ComID:          claims.ComId,
-			Type:           2,
-			SrcType:        2,
-			SrcId:          req.SupplierID,
-			SrcTitle:       supplier.SupplierName,
-			SrcOrderId:     data.OrderId,
-			SrcOrderSn:     data.OrderSn,
-			SrcSubOrderId:  data.SubOrderId,
-			SrcSubOrderSn:  data.SubOrderSn,
-			DestType:       3,
-			DestId:         req.WarehousesId, //接收方为仓库
-			DestTitle:      warehouses.Name,
-			DestOrderId:    0, // 接收方是仓库，所以没有接收方订单id
-			DestOrderSn:    "",
-			DestSubOrderId: 0,
-			DestSubOrderSn: "",
-			PlaceType:      4, // 采购-待收货
-			PlaceId:        req.WarehousesId,
-			SubPlaceId:     0,
-			ProductID:      data.ProductID,
-			Product:        data.ProductName,
-			Contacts:       supplier.SupplierName,
-			Units:          data.Units,
-			Receiver:       warehouses.Name,
-			ReceiverPhone:  warehouses.Phone,
-
-			CustomerPrice: 0,
+			InstanceId:    instanceId,
+			ComID:         claims.ComId,
+			Type:          2,
+			SrcType:       2,
+			SrcId:         req.SupplierID,
+			SrcTitle:      supplier.SupplierName,
+			SrcOrderId:    data.OrderId,
+			SrcOrderSn:    data.OrderSn,
+			SrcSubOrderId: data.SubOrderId,
+			SrcSubOrderSn: data.SubOrderSn,
+			DestType:      3,
+			DestId:        req.WarehousesId, //接收方为仓库
+			DestTitle:     warehouses.Name,
+			DestOrderId:   0, // 接收方是仓库，所以没有接收方订单id
+			PlaceType:     4, // 采购-待收货
+			PlaceId:       req.WarehousesId,
+			ProductID:     data.ProductID,
+			Product:       data.ProductName,
+			Contacts:      supplier.SupplierName,
+			Units:         data.Units,
+			Receiver:      warehouses.Name,
+			ReceiverPhone: warehouses.Phone,
 			SupplierPrice: data.ProductUnitPrice,
-			//Price:             data.ProductUnitPrice,
-			Amount:       data.ProductNum,
-			ExtraAmount:  0,
-			Delivery:     "",
-			DeliveryCode: "",
-			OrderTime:    time.Now().Unix(),
-			CreateBy:     claims.UserId,
-			ShipTime:     0,
-			ConfirmTime:  0,
-			PayTime:      0,
-			FinishTime:   0,
-			Status:       1,
-			//SettlementOrderSN: "",
-			//Settlement:        false,
+			Amount:        data.ProductNum,
+			OrderTime:     time.Now().Unix(),
+			CreateBy:      claims.UserId,
+			Status:        1,
 		}
 		instanceArr = append(instanceArr, instance)
 
 		// 添加采购商品订单的时候不应该更新商品库存，未入库的商品不能算是库存
-		//err = service.UpdateProductStock(data.ProductID, product[data.ProductID].Stock+data.ProductNum, claims.ComId)
-		//	if err != nil {
-		//		fmt.Println("Update product stock err: ", err)
-		//}
+
 	}
 
-	// 添加供应商订单
-	//6
+	// 6 添加供应商订单
 	err = service.CreateSupplierOrder(supplierOrder, supplierSubOrderArr)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
 	}
-	// 添加库存实例记录
-	//7
+	// 7 添加库存实例记录
 	err = service.AddGoodsInstance(instanceArr)
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
 	}
-	// 更新仓库商品种类
-	//8
+	// 8 更新仓库商品种类
 	err = service.UpdateWarehouseProduct(warehouses.ID, claims.ComId, warehouses.Product)
 	if err != nil {
-		fmt.Println("Update Warehouse err: ", err)
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeError,
+			Msg:  err.Error(),
+		})
 		return
 	}
 
-	//// 更新商品库存数量
-	//err = service.UpdateProductStock(product.ProductID, (product.Stock + req.Num), claims.ComId)
-	//if err != nil {
-	//	fmt.Println("Can't update product stock: ", err)
-	//	return
-	//}
+	// 9 更新仓库商品表
+	collection := models.Client.Collection("warehouse_product")
+	for _, ins := range instanceArr {
+		data := ins.(models.GoodsInstance)
+		var record models.WarehouseProduct
+		filter := bson.M{}
+		filter["com_id"] = claims.ComId
+		filter["warehouse_id"] = data.DestId
+		filter["product_id"] = data.ProductID
+		if err := collection.FindOne(context.TODO(), filter).Decode(&record); err != nil {
+			// 说明没有这个记录，新增一条
+			record = models.WarehouseProduct{
+				ComID:       claims.ComId,
+				WarehouseID: data.DestId,
+				InstanceID:  GetLastID("warehouse_product"),
+				ProductID:   data.ProductID,
+				ProductName: data.Product,
+				ProductUnit: data.Units,
+				UnStock:     data.Amount,
+				CreateAt:    time.Now().Unix(),
+				IsDelete:    false,
+			}
+			_, err := collection.InsertOne(context.TODO(), record)
+			if err != nil {
+				c.JSON(http.StatusOK, serializer.Response{
+					Code: serializer.CodeError,
+					Msg:  err.Error(),
+				})
+				return
+			}
+			continue
+		}
+		_, err := collection.UpdateOne(context.TODO(), filter, bson.M{
+			"$inc": bson.M{"un_stock": data.Amount}})
+		if err != nil {
+			c.JSON(http.StatusOK, serializer.Response{
+				Code: serializer.CodeError,
+				Msg:  err.Error(),
+			})
+			return
+		}
+	}
 
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Data: map[string]string{"order_sn": orderSn,},
 		Msg:  "创建采购订单成功",
 	})
 
-}
-
-func SupplierMessage() {
-	// TODO：生成一条供应商订单消息，插入到消息表中，通过微信公众号发送给供应商
-	/*	var message models.MessageForClient
-		message.ID = GetLastID("client_message")
-		message.ComID = claims.ComId
-		message.Client = 2 // 2代表的是供应商
-		message.ClientID = supplier.ID
-		message.Telephone = supplier.Phone
-		message.CreateAt = time.Now().Unix()
-		message.Title = "新的采购订单"
-		message.Content = "向" + supplier.SupplierName + "下了一个订单"
-		message.IsRead = false
-
-		collection := models.Client.Collection("client_message")
-		insertResult, err := collection.InsertOne(context.TODO(), message)
-		if err != nil {
-			fmt.Println("Can't insert client message")
-			return
-		}
-		fmt.Println("insert result: ", insertResult.InsertedID)*/
 }
 
 // 拆分子订单

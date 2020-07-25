@@ -45,7 +45,6 @@ func AllWarehouses(c *gin.Context) {
 	// 设置排序主键
 	orderField := []string{"warehouse_id", "com_id", "warehouse_address", "wh_manager", "warehouse_name"}
 	exist := false
-	fmt.Println("order field: ", req.OrdF)
 	for _, v := range orderField {
 		if req.OrdF == v {
 			exist = true
@@ -57,7 +56,6 @@ func AllWarehouses(c *gin.Context) {
 	}
 	// 设置排序顺序 desc asc
 	order := 1
-	fmt.Println("order: ", req.Ord)
 	if req.Ord == "desc" {
 		order = -1
 		//req.Ord = "desc"
@@ -526,8 +524,8 @@ func DeleteWarehouse(c *gin.Context) {
 
 type ReqWarehouseDetail struct {
 	WarehouseId int64  `json:"warehouse_id" form:"warehouse_id"` // 仓库id
-	Type        string `json:"type" form:"type"`                 // 搜索类型
-	ProductId   int64  `json:"product_id" form:"product_id"`     // 商品id
+	//Type        string `json:"type" form:"type"`                 // 搜索类型
+	//ProductId   int64  `json:"product_id" form:"product_id"`     // 商品id
 }
 
 // 获取仓库详情，有哪些商品，多少库存
@@ -558,23 +556,31 @@ func WarehouseDetail(c *gin.Context) {
 		return
 	}
 
-	// 组装搜索条件
+	if warehouse.Product == nil {
+		c.JSON(http.StatusOK, serializer.Response{
+			Code: serializer.CodeSuccess,
+			Msg:  "仓库中暂时没有商品",
+		})
+		return
+	}
 
 	// 根据product字段，去获取库存信息
 	// TODO：通过仓库商品库存表来取
-	warehouseProduct, err := service.GetProductInfoOfWarehouse(warehouse.Product[0], claims.ComId, req.WarehouseId)
+	//warehouseProduct, err := service.GetProductInfoOfWarehouse(warehouse.Product[0], claims.ComId, req.WarehouseId)
+	warehouseProduct, err := models.WarehouseProductDetail(claims.ComId, req.WarehouseId)
+
 	if err != nil {
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: -1,
+			Code: serializer.CodeError,
 			Msg:  err.Error(),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, serializer.Response{
-		Code: 200,
+		Code: serializer.CodeSuccess,
 		Data: warehouseProduct,
-		Msg:  "",
+		Msg:  "Warehouse product detail",
 	})
 
 }
@@ -657,23 +663,3 @@ type WhDownloadService struct {
 }
 */
 
-type WarehouseCount struct {
-	NameField string
-	Count     int
-}
-
-// 因mongodb不允许自增方法，所以要生成新增客户的id
-// 这是极度不安全的代码，因为本程序是分布式的，本程序可能放在多台服务器上同时运行的。
-// 需要在交付之前修改正确
-func getLastWarehouseID() int {
-	var wc WarehouseCount
-	collection := models.Client.Collection("counters")
-	err := collection.FindOne(context.TODO(), bson.D{{"name", "warehouse"}}).Decode(&wc)
-	if err != nil {
-		fmt.Println("can't get warehouseID")
-		return 0
-	}
-	collection.UpdateOne(context.TODO(), bson.M{"name": "warehouse"}, bson.M{"$set": bson.M{"count": wc.Count + 1}})
-	fmt.Println("customer count: ", wc.Count)
-	return wc.Count + 1
-}

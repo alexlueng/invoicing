@@ -5,6 +5,7 @@ import (
 	"jxc/router"
 )
 
+
 func main() {
 	// 从配置文件读取配置
 	conf.Init()
@@ -24,9 +25,13 @@ func main() {
 	//	<- s.Start()
 	//}()
 
+
+
 	// 装载路由
 	r := router.InitRouter()
 	r.Run(":3000")
+
+
 
 	// 支持热更新
 

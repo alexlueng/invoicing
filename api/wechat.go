@@ -21,12 +21,6 @@ import (
 
 // 微信公众号，小程序处理接口
 
-//type VerifyFileService struct {
-//	PlatformType string `json:"type"`
-//	Dst          string `json:"dst"` // 文件存放路径
-//}
-
-
 //https://developers.weixin.qq.com/miniprogram/dev/api/wx.getUserInfo.html
 
 type VerifyFileService struct {

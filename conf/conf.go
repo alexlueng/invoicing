@@ -10,6 +10,11 @@ import (
 	"jxc/util"
 )
 
+var (
+	IdWorker *util.Worker
+)
+
+
 // Init 初始化配置项
 func Init() {
 	// 从本地读取环境变量
@@ -36,4 +41,11 @@ func Init() {
 	// models.Database(os.Getenv("MYSQL_DSN"))
 	models.Database(os.Getenv("URI"), os.Getenv("DBNAME"))
 	//	cache.Redis()
+
+	worker, err := util.NewWorker(0)
+	if err != nil {
+		util.Log().Panic("error while new snowflake worker")
+	}
+
+	IdWorker = worker
 }

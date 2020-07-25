@@ -744,7 +744,7 @@ func ProductDetail(c *gin.Context) {
 		responseData := make(map[string]interface{})
 		responseData["supplier"] = result
 		c.JSON(http.StatusOK, serializer.Response{
-			Code: serializer.CodeError,
+			Code: serializer.CodeSuccess,
 			Msg:  "没有另外提供此商品的供应商",
 			Data: responseData,
 		})
